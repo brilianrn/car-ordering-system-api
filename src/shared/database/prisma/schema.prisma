@@ -1,0 +1,547 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  user       @map("USER")
+  leader     @map("LEADER")
+  ga         @map("GA")
+  driver     @map("DRIVER")
+  finance    @map("FINANCE")
+  management @map("MANAGEMENT")
+  admin      @map("ADMIN")
+  auditor    @map("AUDITOR")
+}
+
+enum VehicleStatus {
+  active    @map("ACTIVE")
+  inactive  @map("INACTIVE")
+  inService @map("IN_SERVICE")
+}
+
+enum TransmissionType {
+  automatic @map("AUTOMATIC")
+  manual    @map("MANUAL")
+  all       @map("ALL")
+}
+
+enum DriverType {
+  internal @map("INTERNAL")
+  external @map("EXTERNAL")
+}
+
+enum ServiceType {
+  drop   @map("DROP")
+  pickup @map("PICKUP")
+  both   @map("BOTH")
+}
+
+enum BookingStatus {
+  draft      @map("DRAFT")
+  submitted  @map("SUBMITTED")
+  approvedL1 @map("APPROVED_L1")
+  assigned   @map("ASSIGNED")
+  cancelled  @map("CANCELLED")
+  rejected   @map("REJECTED")
+  returned   @map("RETURNED")
+  merged     @map("MERGED")
+}
+
+enum ApprovalStatus {
+  pending  @map("PENDING")
+  approved @map("APPROVED")
+  rejected @map("REJECTED")
+  returned @map("RETURNED")
+}
+
+enum ResourceMode {
+  internal  @map("INTERNAL")
+  dailyRent @map("DAILY_RENT")
+  personal  @map("PERSONAL")
+}
+
+enum FundingSource {
+  driverCash  @map("DRIVER_CASH")
+  modeB       @map("MODE_B")
+  vendor      @map("VENDOR")
+  operational @map("OPERATIONAL")
+}
+
+enum VerifyStatus {
+  draft    @map("DRAFT")
+  inReview @map("IN_REVIEW")
+  verified @map("VERIFIED")
+  blocked  @map("BLOCKED")
+}
+
+model Employee {
+  id            Int      @id @default(autoincrement())
+  employeeId    String   @unique @map("employee_id")
+  fullName      String   @map("full_name")
+  email         String   @unique
+  orgUnitCode   String   @map("org_unit_code")
+  costCenter    String?  @map("cost_center")
+  isActive      Boolean  @default(true) @map("is_active")
+  effectiveFrom DateTime @map("effective_from")
+
+  approverL1Id  String?   @map("approver_l1_id")
+  approverL1    Employee? @relation("Hierarchy", fields: [approverL1Id], references: [employeeId])
+  subordinates  Employee[] @relation("Hierarchy")
+
+  effectiveRoles Role[] @map("effective_roles")
+
+  bookings        Booking[]
+  approvalHeaders ApprovalHeader[] @relation("ApproverL1Relation")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("employee")
+}
+
+model Vendor {
+  id         Int    @id @default(autoincrement())
+  name       String @map("name")
+  contactPic String? @map("contact_pic")
+
+  vehicles Vehicle[]
+  drivers  Driver[]
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("vendor")
+}
+
+model Vehicle {
+  id              Int    @id @default(autoincrement())
+  vehicleCode     String @unique @map("vehicle_code")
+  licensePlate    String @unique @map("license_plate")
+
+  vendorId        Int?    @map("vendor_id")
+  vendor          Vendor? @relation(fields: [vendorId], references: [id])
+
+  brandModel      String @map("brand_model")
+  vehicleType     String @map("vehicle_type")
+  year            Int
+  transmission    TransmissionType
+  seatCapacity    Int     @map("seat_capacity")
+  fuelConsumption Float   @map("fuel_consumption")
+  status          VehicleStatus @default(active)
+  plantLocation   String  @map("plant_location")
+  divisionFlag    String? @map("division_flag")
+
+  isDedicated     Boolean @default(false) @map("is_dedicated")
+
+  defaultDriverId Int? @unique @map("default_driver_id")
+  defaultDriver   Driver? @relation("DefaultDriverRelation", fields: [defaultDriverId], references: [id])
+
+  assignments Assignment[] @relation("AssignmentVehicle")
+  travelOrders SuratJalan[] @relation("SJVehicle")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("vehicle")
+}
+
+model Driver {
+  id           Int      @id @default(autoincrement())
+  driverCode   String   @unique @map("driver_code")
+  fullName     String   @map("full_name")
+  internalNik  String?  @map("internal_nik")
+  driverType   DriverType @default(internal) @map("driver_type")
+
+  vendorId     Int?    @map("vendor_id")
+  vendor       Vendor? @relation(fields: [vendorId], references: [id])
+
+  simNumber    String   @unique @map("sim_number")
+  simExpiry    DateTime @map("sim_expiry")
+  phoneNumber  String?  @map("phone_number")
+
+  transmissionPref TransmissionType @default(all) @map("transmission_pref")
+  plantLocation    String @map("plant_location")
+  realtimeStatus   String @default("Idle") @map("realtime_status")
+
+  isDedicated   Boolean @default(false) @map("is_dedicated")
+
+  defaultVehicle Vehicle? @relation("DefaultDriverRelation")
+
+  assignments Assignment[] @relation("AssignmentDriver")
+  travelOrders SuratJalan[] @relation("SJDriver")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("driver")
+}
+
+model Category {
+  id           Int    @id @default(autoincrement())
+  code         String @unique @map("code")
+  name         String @unique @map("name")
+  status       String @default("Active")
+  displayOrder Int    @map("display_order")
+  scope        String @default("Global")
+
+  bookings Booking[]
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("category")
+}
+
+model ParamSet {
+  id            Int      @id @default(autoincrement())
+  version       Int      @unique
+  status        String   @default("Draft")
+  effectiveFrom DateTime @map("effective_from")
+  environment   String   @default("UAT") @map("environment")
+  publishedBy   String   @map("published_by")
+
+  items ParamItem[]
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("param_set")
+}
+
+model ParamItem {
+  id         Int      @id @default(autoincrement())
+  paramSetId Int      @map("param_set_id")
+  paramSet   ParamSet @relation(fields: [paramSetId], references: [id])
+
+  name       String @map("name")
+  group      String @map("group")
+  value      String
+  unit       String?
+  scope      String @default("Global")
+  notes      String?
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("param_item")
+}
+
+model Booking {
+  id            Int    @id @default(autoincrement())
+  bookingNumber String @unique @map("booking_number")
+
+  requesterId   String   @map("requester_id")
+  requester     Employee @relation(fields: [requesterId], references: [employeeId])
+
+  submittedAt   DateTime @default(now()) @map("submitted_at")
+  serviceType   ServiceType @map("service_type")
+  purpose       String
+  startAt       DateTime @map("start_at")
+  endAt         DateTime @map("end_at")
+  passengerCount Int     @map("passenger_count")
+
+  categoryId    Int      @map("category_id")
+  category      Category  @relation(fields: [categoryId], references: [id])
+
+  resourceMode  ResourceMode @map("resource_mode")
+
+  bookingStatus BookingStatus @default(draft) @map("booking_status")
+  cancelReason  String?  @map("cancel_reason")
+  autoCancelAt  DateTime? @map("auto_cancel_at")
+
+  carpoolGroupId Int? @map("carpool_group_id")
+  carpoolGroup   CarpoolGroup? @relation("CarpoolMembers", fields: [carpoolGroupId], references: [id])
+
+  hostCarpool    CarpoolGroup? @relation("CarpoolHost")
+
+  segments        BookingSegment[]
+  approvalHeader  ApprovalHeader?
+  assignment      Assignment?
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("booking")
+}
+
+model CarpoolGroup {
+  id            Int @id @default(autoincrement())
+
+  hostBookingId Int @unique @map("host_booking_id")
+  hostBooking   Booking @relation("CarpoolHost", fields: [hostBookingId], references: [id])
+
+  memberBookings Booking[] @relation("CarpoolMembers")
+
+  status        String @default("Active") @map("status")
+  combinedRoute Json?  @map("combined_route")
+  sharedCost    Json?  @map("shared_cost")
+
+  createdAt     DateTime @default(now()) @map("created_at") // Already existed, kept and added others
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("carpool_group")
+}
+
+model ApprovalHeader {
+  id         Int @id @default(autoincrement())
+
+  bookingId  Int @unique @map("booking_id")
+  booking    Booking @relation(fields: [bookingId], references: [id])
+
+  approverL1Id String @map("approver_l1_id")
+  approverL1   Employee @relation("ApproverL1Relation", fields: [approverL1Id], references: [employeeId])
+
+  assignedAt DateTime @map("assigned_at")
+  slaDueAt   DateTime @map("sla_due_at")
+
+  decisionL1     ApprovalStatus? @map("decision_l1")
+  decisionTimeL1 DateTime?       @map("decision_time_l1")
+  commentL1      String?         @map("comment_l1")
+
+  gaAssigneeId String?  @map("ga_assignee_id")
+  decisionL2   ApprovalStatus? @map("decision_l2")
+
+  assignment Assignment?
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("approval_header")
+}
+
+model Assignment {
+  id         Int @id @default(autoincrement())
+
+  bookingId  Int @unique @map("booking_id")
+  booking    Booking @relation(fields: [bookingId], references: [id])
+
+  resourceMode ResourceMode @map("resource_mode")
+
+  vehicleChosenId Int? @map("vehicle_chosen_id")
+  vehicleChosen   Vehicle? @relation("AssignmentVehicle", fields: [vehicleChosenId], references: [id])
+
+  driverChosenId Int? @map("driver_chosen_id")
+  driverChosen   Driver? @relation("AssignmentDriver", fields: [driverChosenId], references: [id])
+
+  vendorChosenId Int? @map("vendor_chosen_id")
+
+  dispatchNote      String? @map("dispatch_note")
+  assignmentSnapshot Json?  @map("assignment_snapshot")
+
+  assignedAtL2 DateTime? @map("assigned_at_l2")
+  slaDueAtL2   DateTime? @map("sla_due_at_l2")
+
+  approvalHeaderId Int? @unique @map("approval_header_id")
+  approvalHeader   ApprovalHeader? @relation(fields: [approvalHeaderId], references: [id])
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("assignment")
+}
+
+model BookingSegment {
+  id        Int @id @default(autoincrement())
+
+  bookingId Int @map("booking_id")
+  booking   Booking @relation(fields: [bookingId], references: [id])
+
+  segmentNo Int    @map("segment_no")
+  type      String @map("type")
+  from      String @map("from")
+  to        String @map("to")
+  estKm     Float? @map("est_km")
+
+  travelOrder SuratJalan?
+  execution   SegmentExecution?
+
+  @@unique([bookingId, segmentNo])
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("booking_segment")
+}
+
+model SuratJalan {
+  id      Int    @id @default(autoincrement())
+  sjCode  String @unique @map("sj_code")
+
+  bookingId Int @map("booking_id")
+  segmentId Int @unique @map("segment_id")
+
+  status    String @default("Draft") @map("status")
+
+  vehicleId Int @map("vehicle_id")
+  vehicle   Vehicle @relation("SJVehicle", fields: [vehicleId], references: [id])
+
+  driverId Int @map("driver_id")
+  driver   Driver @relation("SJDriver", fields: [driverId], references: [id])
+
+  stopList Json? @map("stop_list")
+  isHandover Boolean @default(false) @map("is_handover")
+
+  segment BookingSegment @relation(fields: [segmentId], references: [id])
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("travel_order")
+}
+
+model SegmentExecution {
+  id        Int @id @default(autoincrement())
+  segmentId Int @unique @map("segment_id")
+
+  segment BookingSegment @relation(fields: [segmentId], references: [id])
+
+  status       String    @default("NotStarted") @map("status")
+  checkInAt    DateTime? @map("check_in_at")
+  checkOutAt   DateTime? @map("check_out_at")
+
+  odoStart     Float? @map("odo_start")
+  odoEnd       Float? @map("odo_end")
+  odoDistance  Float? @map("odo_distance")
+  gpsDistance  Float? @map("gps_distance")
+  anomalyFlags Json?  @map("anomaly_flags")
+
+  verification VerificationHeader?
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("segment_execution")
+}
+
+model VerificationHeader {
+  id                 Int @id @default(autoincrement())
+
+  segmentExecutionId Int? @unique @map("segment_execution_id")
+  segmentExecution   SegmentExecution? @relation(fields: [segmentExecutionId], references: [id])
+
+  verifyStatus VerifyStatus @default(inReview) @map("verify_status")
+  verifierId   String @map("verifier_id")
+  verifiedAt   DateTime? @map("verified_at")
+
+  resultSnapshot Json? @map("result_snapshot")
+  anomalyHandled Boolean @default(false) @map("anomaly_handled")
+
+  receiptItems ReceiptItem[]
+
+  reimburseTicket  String? @unique @map("reimburse_ticket")
+  replenishTicket  String? @unique @map("replenish_ticket")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("verification_header")
+}
+
+model ReceiptItem {
+  id         Int @id @default(autoincrement())
+
+  verifyId   Int @map("verify_id")
+  verification VerificationHeader @relation(fields: [verifyId], references: [id])
+
+  category     String
+  amountIdr    Int      @map("amount_idr")
+  receiptDate  DateTime @map("receipt_date")
+  photoUrl     String   @map("photo_url")
+  fundingSource FundingSource @map("funding_source")
+
+  dupHash      String? @map("dup_hash")
+  ocrSnapshot  Json?   @map("ocr_snapshot")
+  gaNote       String? @map("ga_note")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("receipt_item")
+}
+
+model AuditLog {
+  id         Int @id @default(autoincrement())
+  timestamp  DateTime @default(now())
+
+  userNik    String @map("user_nik")
+  featureCode String @map("feature_code")
+  action      String @map("action")
+
+  entityType String @map("entity_type")
+  entityId   Int    @map("entity_id")
+
+  beforeAfter Json? @map("before_after")
+  reasonCode  String? @map("reason_code")
+
+  notificationJobId Int? @map("notification_job_id")
+
+  @@map("audit_log")
+}
