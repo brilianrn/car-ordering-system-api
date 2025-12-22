@@ -6,6 +6,7 @@ export enum ERoutes {
   AUTH = `${EPrefix.V1}/auth`,
   USER = `${EPrefix.V1}/user`,
   ROLE = `${EPrefix.V1}/role`,
+  VEHICLES = `${EPrefix.V1}/vehicle`,
 }
 
 export const authRoute = {
@@ -18,4 +19,14 @@ export const authRoute = {
 
 export const roleRoute = {
   lov: '/lov',
+};
+
+export const vehicleRoute = {
+  list: '',
+  detail: '/:id/detail',
+  findOne: '/:id',
+  create: '',
+  update: '/:id',
+  delete: '/:id',
+  restore: '/:id/restore',
 };

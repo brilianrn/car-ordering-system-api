@@ -1,4 +1,7 @@
+import { ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import 'dotenv/config';
 import { AppModule } from './modules';
 import { SchedulerModule } from './modules/scheduler.module';
 import { WorkerModule } from './modules/worker.module';
@@ -8,14 +11,20 @@ async function bootstrap() {
   const mode = process.env.MODE;
 
   console.log(`🚀 COS Backend starting in MODE = ${mode?.toUpperCase()}`);
+  console.log(process.env.DATABASE_URL, 'DATABASE_URL DATABASE_URL');
 
   switch (mode) {
     case 'API': {
       const app = await NestFactory.create(AppModule, {
         bufferLogs: true,
       });
+      const configService = app.get(ConfigService);
 
-      app.setGlobalPrefix('v1');
+      console.log(
+        'Database URL in main.ts:',
+        configService.get('DATABASE_URL'),
+      );
+
       app.enableCors();
 
       const port = process.env.PORT || 3000;
@@ -25,6 +34,14 @@ async function bootstrap() {
         methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
         credentials: true,
       });
+
+      app.useGlobalPipes(
+        new ValidationPipe({
+          whitelist: true,
+          forbidNonWhitelisted: true,
+          transform: true,
+        }),
+      );
 
       app.useGlobalFilters(new AllExceptionsFilter());
 

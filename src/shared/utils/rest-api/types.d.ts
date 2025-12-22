@@ -58,3 +58,11 @@ export interface ConfigService {
   Authorization: string;
   [key: string]: string | number | object | boolean;
 }
+
+export interface IUsecaseResponse<T> {
+  data?: T;
+  error?: {
+    message?: string;
+    code?: number;
+  };
+}

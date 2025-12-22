@@ -10,7 +10,7 @@ export const response = {
   ) => {
     return response.status(HttpStatus.OK).json({
       code: code || HttpStatus.OK,
-      message: message || 'Sukses!',
+      message: message || 'Success!',
       data,
     });
   },
@@ -20,7 +20,7 @@ export const response = {
   ) => {
     return response.status(HttpStatus.CREATED).json({
       code: code || HttpStatus.CREATED,
-      message: message || 'Berhasil dibuat!',
+      message: message || 'Successfully created!',
       data,
     });
   },
@@ -30,7 +30,7 @@ export const response = {
   ) => {
     return response.status(HttpStatus.BAD_REQUEST).json({
       code: code || HttpStatus.BAD_REQUEST,
-      message: message || 'Tidak valid!',
+      message: message || 'Invalid!',
       data,
     });
   },
@@ -40,7 +40,7 @@ export const response = {
   ) => {
     return response.status(HttpStatus.UNAUTHORIZED).json({
       code: code || HttpStatus.UNAUTHORIZED,
-      message: message || 'Tidak diizinkan!',
+      message: message || 'Unauthorized!',
       data,
     });
   },
@@ -50,7 +50,7 @@ export const response = {
   ) => {
     return response.status(HttpStatus.FORBIDDEN).json({
       code: code || HttpStatus.FORBIDDEN,
-      message: message || 'Gagal!',
+      message: message || 'Failed!',
       data,
     });
   },
@@ -60,7 +60,7 @@ export const response = {
   ) => {
     return response.status(HttpStatus.NOT_FOUND).json({
       code: code || HttpStatus.NOT_FOUND,
-      message: message || 'Tidak ditemukan!',
+      message: message || 'Not found!',
       data,
     });
   },
