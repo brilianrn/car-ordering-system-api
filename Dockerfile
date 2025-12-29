@@ -15,7 +15,7 @@
   # Copy the entire source code
   COPY . .
   
-  # Generate Prisma Client using the specific schema path
+  # Generate Prisma Client (build time)
   RUN npx prisma generate --schema=./src/shared/database/prisma/schema.prisma
   
   # Build the NestJS application
@@ -31,7 +31,7 @@
   COPY --from=builder /app/node_modules ./node_modules
   COPY --from=builder /app/package*.json ./
   
-  # Copy prisma folder for runtime engines
+  # Copy prisma folder for runtime migrations
   COPY --from=builder /app/src/shared/database/prisma ./src/shared/database/prisma/
   
   # Set environment variables
@@ -39,5 +39,6 @@
   ENV NODE_ENV=production
   EXPOSE 3001
   
-  # Start the application using the correct path discovered: dist/src/main
-  CMD ["node", "dist/src/main"]
+  # BEST PRACTICE: Run database migration then start the app
+  # This ensures your 'booking' table is created automatically on AWS
+  CMD ["sh", "-c", "npx prisma db push --schema=./src/shared/database/prisma/schema.prisma && node dist/src/main"]
