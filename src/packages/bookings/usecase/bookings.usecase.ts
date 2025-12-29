@@ -3,8 +3,9 @@ import { globalLogger as Logger } from '@/shared/utils/logger';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { BookingStatus, Prisma, ServiceType } from '@prisma/client';
-import { IBooking, IBookingListResponse } from '../domain/response';
+import { IAvailableVehicle, IBooking, IBookingListResponse } from '../domain/response';
 import { CreateBookingDto } from '../dto/create-booking.dto';
+import { QueryAvailableVehiclesDto } from '../dto/query-available-vehicles.dto';
 import { QueryBookingDto } from '../dto/query-booking.dto';
 import { BookingsRepositoryPort } from '../ports/repository.port';
 import { BookingsUsecasePort } from '../ports/usecase.port';
@@ -73,11 +74,35 @@ export class BookingsUseCase implements BookingsUsecasePort {
         };
       }
 
-      // 5. Generate unique booking number: BK-YYYYMMDD-RANDOM
+      // 5. Validate vehicle availability if vehicleId is provided
+      if (createDto.vehicleId) {
+        const startDate = new Date(createDto.startAt);
+        const endDate = new Date(createDto.endAt);
+
+        // Get available vehicles for the requested date range
+        const availableVehicles = await this.repository.findAvailableVehicles({
+          startAt: startDate,
+          endAt: endDate,
+        });
+
+        // Check if the requested vehicle is in the available list
+        const isVehicleAvailable = availableVehicles.some((vehicle) => vehicle.id === createDto.vehicleId);
+
+        if (!isVehicleAvailable) {
+          return {
+            error: {
+              message: `Vehicle with ID ${createDto.vehicleId} is not available for the requested date range`,
+              code: HttpStatus.BAD_REQUEST,
+            },
+          };
+        }
+      }
+
+      // 6. Generate unique booking number: BK-YYYYMMDD-RANDOM
       // This must be done before transaction to ensure uniqueness
       const bookingNumber = await this.generateBookingNumber();
 
-      // 6. Calculate SLA due date: currentDate + 24 hours
+      // 7. Calculate SLA due date: currentDate + 24 hours
       const assignedAt = new Date(); // Current date/time
       const slaDueAt = new Date(assignedAt.getTime() + 24 * 60 * 60 * 1000); // Exactly 24 hours from now
 
@@ -294,6 +319,44 @@ export class BookingsUseCase implements BookingsUsecasePort {
         error instanceof Error ? error.message : 'Error in findAll',
         error instanceof Error ? error.stack : undefined,
         'BookingsUseCase.findAll',
+      );
+      return { error };
+    }
+  };
+
+  findAvailableVehicles = async (
+    query: QueryAvailableVehiclesDto,
+    requesterId?: string,
+  ): Promise<IUsecaseResponse<IAvailableVehicle[]>> => {
+    try {
+      const { startAt, endAt } = query;
+
+      // Convert ISO string dates to Date objects if provided
+      const startDate = startAt ? new Date(startAt) : undefined;
+      const endDate = endAt ? new Date(endAt) : undefined;
+
+      // Validate date range if both dates are provided
+      if (startDate && endDate && startDate > endDate) {
+        return {
+          error: {
+            message: 'Start date must be before or equal to end date',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
+      }
+
+      const availableVehicles = await this.repository.findAvailableVehicles({
+        startAt: startDate,
+        endAt: endDate,
+        requesterId, // Pass requesterId to get user's orgUnitId for sorting
+      });
+
+      return { data: availableVehicles };
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findAvailableVehicles',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsUseCase.findAvailableVehicles',
       );
       return { error };
     }

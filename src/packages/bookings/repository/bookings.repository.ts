@@ -208,4 +208,152 @@ export class BookingsRepository implements BookingsRepositoryPort {
       throw error;
     }
   };
+
+  findAvailableVehicles = async (params: {
+    startAt?: Date;
+    endAt?: Date;
+    requesterId?: string;
+  }): Promise<
+    Array<{
+      id: number;
+      vehicleCode: string;
+      licensePlate: string;
+      brandModel: string;
+      vehicleType: string;
+      seatCapacity: number;
+      year: number;
+      status: string;
+      dedicatedOrgId: number | null;
+    }>
+  > => {
+    try {
+      const { startAt, endAt, requesterId } = params;
+
+      // Get requester's orgUnitId if requesterId is provided
+      let userOrgUnitId: number | null = null;
+      if (requesterId) {
+        const employee = await this.db.employee.findUnique({
+          where: { employeeId: requesterId },
+          select: { orgUnitId: true },
+        });
+        if (employee) {
+          userOrgUnitId = employee.orgUnitId;
+        }
+      }
+
+      // Build where clause for vehicle availability
+      const vehicleWhere: Prisma.VehicleWhereInput = {
+        deletedAt: null, // Not deleted
+        status: 'ACTIVE', // Only active vehicles
+      };
+
+      // Get all active vehicles first
+      const allVehicles = await this.db.vehicle.findMany({
+        where: vehicleWhere,
+        select: {
+          id: true,
+          vehicleCode: true,
+          licensePlate: true,
+          brandModel: true,
+          vehicleType: true,
+          seatCapacity: true,
+          year: true,
+          status: true,
+          dedicatedOrgId: true,
+        },
+      });
+
+      // If no date range provided, sort and return all active vehicles
+      if (!startAt || !endAt) {
+        // Sort vehicles:
+        // 1. Vehicles from same division (dedicatedOrgId === userOrgUnitId) first
+        // 2. Then sort by year (newest to oldest)
+        const sortedVehicles = allVehicles.sort((a, b) => {
+          // Priority 1: Same division vehicles first
+          const aIsSameDivision = userOrgUnitId !== null && a.dedicatedOrgId === userOrgUnitId;
+          const bIsSameDivision = userOrgUnitId !== null && b.dedicatedOrgId === userOrgUnitId;
+
+          if (aIsSameDivision && !bIsSameDivision) {
+            return -1; // a comes first
+          }
+          if (!aIsSameDivision && bIsSameDivision) {
+            return 1; // b comes first
+          }
+
+          // Priority 2: Sort by year (newest to oldest)
+          return b.year - a.year;
+        });
+
+        return sortedVehicles;
+      }
+
+      // Find vehicles that are already assigned during the requested time period
+      // Check in Assignment table where booking is approved/assigned and dates overlap
+      const conflictingAssignments = await this.db.assignment.findMany({
+        where: {
+          deletedAt: null,
+          vehicleChosenId: {
+            not: null,
+          },
+          booking: {
+            deletedAt: null,
+            bookingStatus: {
+              in: ['APPROVED_L1', 'ASSIGNED'], // Only check bookings that are approved/assigned
+            },
+            // Check for date overlap: booking dates overlap with requested dates
+            OR: [
+              // Booking starts before requested period and ends during/after
+              {
+                startAt: {
+                  lte: endAt,
+                },
+                endAt: {
+                  gte: startAt,
+                },
+              },
+            ],
+          },
+        },
+        select: {
+          vehicleChosenId: true,
+        },
+      });
+
+      // Get list of vehicle IDs that are already assigned
+      const assignedVehicleIds = new Set(
+        conflictingAssignments.map((assignment) => assignment.vehicleChosenId).filter((id): id is number => id !== null),
+      );
+
+      // Filter out vehicles that are already assigned
+      const availableVehicles = allVehicles.filter((vehicle) => !assignedVehicleIds.has(vehicle.id));
+
+      // Sort vehicles:
+      // 1. Vehicles from same division (dedicatedOrgId === userOrgUnitId) first
+      // 2. Then sort by year (newest to oldest)
+      const sortedVehicles = availableVehicles.sort((a, b) => {
+        // Priority 1: Same division vehicles first
+        const aIsSameDivision = userOrgUnitId !== null && a.dedicatedOrgId === userOrgUnitId;
+        const bIsSameDivision = userOrgUnitId !== null && b.dedicatedOrgId === userOrgUnitId;
+
+        if (aIsSameDivision && !bIsSameDivision) {
+          return -1; // a comes first
+        }
+        if (!aIsSameDivision && bIsSameDivision) {
+          return 1; // b comes first
+        }
+
+        // Priority 2: Sort by year (newest to oldest)
+        return b.year - a.year;
+      });
+
+      return sortedVehicles;
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findAvailableVehicles',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsRepository.findAvailableVehicles',
+      );
+      throw error;
+    }
+  };
 }

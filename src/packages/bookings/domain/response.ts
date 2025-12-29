@@ -31,3 +31,15 @@ export interface IBookingListResponse {
     total: number;
   };
 }
+
+export interface IAvailableVehicle {
+  id: number;
+  vehicleCode: string;
+  licensePlate: string;
+  brandModel: string;
+  vehicleType: string;
+  seatCapacity: number;
+  year: number;
+  status: string;
+  dedicatedOrgId: number | null;
+}

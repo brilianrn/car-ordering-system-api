@@ -53,4 +53,5 @@ export const uploadRoute = {
 export const bookingRoute = {
   list: '',
   create: '',
+  lovAvailableVehicles: '/lov/available-vehicles',
 };

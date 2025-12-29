@@ -4,6 +4,7 @@ import { response } from '@/shared/utils/rest-api/response';
 import { Body, Controller, Get, Headers, HttpStatus, Inject, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { CreateBookingDto } from '../dto/create-booking.dto';
+import { QueryAvailableVehiclesDto } from '../dto/query-available-vehicles.dto';
 import { QueryBookingDto } from '../dto/query-booking.dto';
 import { BookingsControllerPort } from '../ports/controller.port';
 import { BookingsUsecasePort } from '../ports/usecase.port';
@@ -75,6 +76,38 @@ export class BookingsController implements BookingsControllerPort {
         error instanceof Error ? error.message : 'Error in findAll',
         error instanceof Error ? error.stack : undefined,
         'BookingsController.findAll',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: error?.message || validationMessage()[500](),
+      });
+    }
+  }
+
+  @Get(bookingRoute.lovAvailableVehicles)
+  async findAvailableVehicles(
+    @Query() query: QueryAvailableVehiclesDto,
+    @Headers('x-user-id') userId: string,
+    @Res() res: Response,
+  ) {
+    try {
+      // Use userId as requesterId to get user's orgUnitId for sorting
+      const requesterId = userId;
+      const result = await this.usecase.findAvailableVehicles(query, requesterId);
+
+      if (result?.error) {
+        return response[HttpStatus.BAD_REQUEST](res, {
+          message: result?.error?.message || validationMessage()[500](),
+        });
+      }
+      return response[HttpStatus.OK](res, {
+        message: validationMessage()[200](),
+        data: result?.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findAvailableVehicles',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsController.findAvailableVehicles',
       );
       return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
         message: error?.message || validationMessage()[500](),

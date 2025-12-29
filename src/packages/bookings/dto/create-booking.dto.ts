@@ -1,5 +1,5 @@
 import { ResourceMode, ServiceType } from '@prisma/client';
-import { IsDateString, IsEnum, IsInt, IsNotEmpty, IsObject, IsString, Min, ValidateNested } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class BookingSegmentDto {
@@ -43,4 +43,10 @@ export class CreateBookingDto {
   @ValidateNested()
   @Type(() => BookingSegmentDto)
   segment: BookingSegmentDto;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  vehicleId?: number; // Optional: Preferred vehicle ID (will be validated for availability)
 }

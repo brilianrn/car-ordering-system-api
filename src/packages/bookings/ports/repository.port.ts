@@ -23,4 +23,22 @@ export interface BookingsRepositoryPort {
   findBookingByNumber(bookingNumber: string): Promise<Booking | null>;
 
   findEmployeeByEmployeeId(employeeId: string): Promise<{ employeeId: string; approverL1Id: string | null } | null>;
+
+  findAvailableVehicles(params: {
+    startAt?: Date;
+    endAt?: Date;
+    requesterId?: string; // To get user's orgUnitId for sorting
+  }): Promise<
+    Array<{
+      id: number;
+      vehicleCode: string;
+      licensePlate: string;
+      brandModel: string;
+      vehicleType: string;
+      seatCapacity: number;
+      year: number;
+      status: string;
+      dedicatedOrgId: number | null;
+    }>
+  >;
 }
