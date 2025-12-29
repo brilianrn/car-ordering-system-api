@@ -6,6 +6,12 @@ export interface IVehicle extends Vehicle {
     name: string;
     contactPic?: string | null;
   } | null;
+  dedicatedOrg?: {
+    id: number;
+    code: string;
+    name: string;
+    type: string;
+  } | null;
 }
 
 export interface IVehicleListResponse {
@@ -17,6 +23,12 @@ export interface IVehicleListResponse {
   };
 }
 
+export interface IVehicleImage {
+  id: number;
+  name: string;
+  url: string; // Presigned URL
+}
+
 export interface IVehicleDetailResponse extends Partial<IVehicle> {
   createdAt: Date;
   createdBy: string;
@@ -24,4 +36,10 @@ export interface IVehicleDetailResponse extends Partial<IVehicle> {
   updatedBy?: string | null;
   deletedAt?: Date | null;
   deletedBy?: string | null;
+  images?: IVehicleImage[];
+}
+
+export interface IOrganizationLOV {
+  label: string;
+  value: number;
 }

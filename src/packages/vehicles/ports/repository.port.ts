@@ -1,4 +1,4 @@
-import { Prisma, Vehicle } from '@prisma/client';
+import { OrganizationUnit, Prisma, Vehicle, VehicleImage } from '@prisma/client';
 
 export interface VehiclesRepositoryPort {
   findMany: (params: {
@@ -16,9 +16,10 @@ export interface VehiclesRepositoryPort {
     includeDeleted?: boolean,
   ) => Promise<Vehicle | null>;
   create: (data: Prisma.VehicleCreateInput) => Promise<Vehicle>;
-  update: (params: {
-    where: Prisma.VehicleWhereUniqueInput;
-    data: Prisma.VehicleUpdateInput;
-  }) => Promise<Vehicle>;
+  update: (params: { where: Prisma.VehicleWhereUniqueInput; data: Prisma.VehicleUpdateInput }) => Promise<Vehicle>;
   findFirst: (where: Prisma.VehicleWhereInput) => Promise<Vehicle | null>;
+  countVehicleImages: (vehicleId: number) => Promise<number>;
+  createVehicleImage: (data: Prisma.VehicleImageCreateInput) => Promise<VehicleImage>;
+  deleteVehicleImages: (vehicleId: number) => Promise<void>;
+  findActiveOrganizations: () => Promise<OrganizationUnit[]>;
 }

@@ -8,8 +8,7 @@ export const validationMessage = (label?: string) => ({
   408: () => 'Please check your internet connection!',
   500: () => 'Server error occurred. Please try again later',
   failedCreate: `Failed to create ${label || 'form'}. Please check your form.`,
-  failedLogin: (method: 'Email' | 'Phone number') =>
-    `Invalid ${method} or password`,
+  failedLogin: (method: 'Email' | 'Phone number') => `Invalid ${method} or password`,
   failedUpdate: `Failed to update ${label || 'form'}. Please check your form.`,
   unstableNetwork: `Unstable internet connection`,
   noNetwork: `No internet connection`,

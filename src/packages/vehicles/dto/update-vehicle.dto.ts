@@ -1,5 +1,8 @@
 import { TransmissionType, VehicleStatus } from '@prisma/client';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -66,4 +69,15 @@ export class UpdateVehicleDto {
   @IsOptional()
   @IsBoolean()
   isDedicated?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  dedicatedOrgId?: number; // Required if isDedicated is true
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1, { message: 'At least 1 image is required' })
+  @ArrayMaxSize(3, { message: 'Maximum 3 images allowed' })
+  @IsInt({ each: true })
+  imageAssetIds?: number[];
 }

@@ -1,7 +1,7 @@
 import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { Injectable } from '@nestjs/common';
-import { Prisma, PrismaClient, Vehicle } from '@prisma/client';
+import { OrganizationUnit, Prisma, PrismaClient, Vehicle, VehicleImage } from '@prisma/client';
 import { VehiclesRepositoryPort } from '../ports/repository.port';
 
 @Injectable()
@@ -19,7 +19,7 @@ export class VehiclesRepository implements VehiclesRepositoryPort {
         ...params,
         where: {
           ...params.where,
-          deletedAt: null, // Always exclude soft-deleted records
+          deletedAt: null,
         },
       });
     } catch (error) {
@@ -37,7 +37,7 @@ export class VehiclesRepository implements VehiclesRepositoryPort {
       return await this.db.vehicle.count({
         where: {
           ...where,
-          deletedAt: null, // Always exclude soft-deleted records
+          deletedAt: null,
         },
       });
     } catch (error) {
@@ -111,14 +111,12 @@ export class VehiclesRepository implements VehiclesRepositoryPort {
     }
   };
 
-  findFirst = async (
-    where: Prisma.VehicleWhereInput,
-  ): Promise<Vehicle | null> => {
+  findFirst = async (where: Prisma.VehicleWhereInput): Promise<Vehicle | null> => {
     try {
       return await this.db.vehicle.findFirst({
         where: {
           ...where,
-          deletedAt: null, // Always exclude soft-deleted records
+          deletedAt: null,
         },
       });
     } catch (error) {
@@ -126,6 +124,75 @@ export class VehiclesRepository implements VehiclesRepositoryPort {
         error instanceof Error ? error.message : 'Error in findFirst',
         error instanceof Error ? error.stack : undefined,
         'VehiclesRepository.findFirst',
+      );
+      throw error;
+    }
+  };
+
+  countVehicleImages = async (vehicleId: number): Promise<number> => {
+    try {
+      return await this.db.vehicleImage.count({
+        where: {
+          vehicleId,
+        },
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in countVehicleImages',
+        error instanceof Error ? error.stack : undefined,
+        'VehiclesRepository.countVehicleImages',
+      );
+      throw error;
+    }
+  };
+
+  createVehicleImage = async (data: Prisma.VehicleImageCreateInput): Promise<VehicleImage> => {
+    try {
+      return await this.db.vehicleImage.create({
+        data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in createVehicleImage',
+        error instanceof Error ? error.stack : undefined,
+        'VehiclesRepository.createVehicleImage',
+      );
+      throw error;
+    }
+  };
+
+  deleteVehicleImages = async (vehicleId: number): Promise<void> => {
+    try {
+      await this.db.vehicleImage.deleteMany({
+        where: {
+          vehicleId,
+        },
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in deleteVehicleImages',
+        error instanceof Error ? error.stack : undefined,
+        'VehiclesRepository.deleteVehicleImages',
+      );
+      throw error;
+    }
+  };
+
+  findActiveOrganizations = async (): Promise<OrganizationUnit[]> => {
+    try {
+      return await this.db.organizationUnit.findMany({
+        where: {
+          deletedAt: null,
+        },
+        orderBy: {
+          name: 'asc',
+        },
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findActiveOrganizations',
+        error instanceof Error ? error.stack : undefined,
+        'VehiclesRepository.findActiveOrganizations',
       );
       throw error;
     }

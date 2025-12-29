@@ -1,5 +1,8 @@
 import { TransmissionType, VehicleStatus } from '@prisma/client';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -11,9 +14,9 @@ import {
 } from 'class-validator';
 
 export class CreateVehicleDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  vehicleCode: string;
+  vehicleCode?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -60,4 +63,14 @@ export class CreateVehicleDto {
   @IsOptional()
   @IsBoolean()
   isDedicated?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  dedicatedOrgId?: number;
+
+  @IsArray()
+  @ArrayMinSize(1, { message: 'At least 1 image is required' })
+  @ArrayMaxSize(3, { message: 'Maximum 3 images allowed' })
+  @IsInt({ each: true })
+  imageAssetIds: number[];
 }

@@ -9,16 +9,10 @@ export class GlobalErrorHandler {
       throw error;
     }
 
-    throw new HttpException(
-      error.message || 'Internal server error',
-      error.status || HttpStatus.INTERNAL_SERVER_ERROR,
-    );
+    throw new HttpException(error.message || 'Internal server error', error.status || HttpStatus.INTERNAL_SERVER_ERROR);
   }
 
-  static async handleAsync<T>(
-    operation: () => Promise<T>,
-    context?: string,
-  ): Promise<T> {
+  static async handleAsync<T>(operation: () => Promise<T>, context?: string): Promise<T> {
     try {
       return await operation();
     } catch (error) {

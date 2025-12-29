@@ -8,6 +8,7 @@ import {
   Get,
   Headers,
   HttpStatus,
+  Inject,
   Param,
   ParseIntPipe,
   Patch,
@@ -21,11 +22,16 @@ import { CreateVehicleDto } from '../dto/create-vehicle.dto';
 import { QueryVehicleDto } from '../dto/query-vehicle.dto';
 import { UpdateVehicleDto } from '../dto/update-vehicle.dto';
 import { VehiclesControllerPort } from '../ports/controller.port';
-import { VehiclesUseCase } from '../usecase/vehicles.usecase';
+import { VehiclesUsecasePort } from '../ports/usecase.port';
 
 @Controller(ERoutes.VEHICLES)
 export class VehiclesController implements VehiclesControllerPort {
-  constructor(private readonly usecase: VehiclesUseCase) {}
+  constructor(
+    @Inject('VehiclesUsecasePort')
+    private readonly usecase: VehiclesUsecasePort,
+  ) {
+    this.usecase = usecase;
+  }
 
   @Get(vehicleRoute.list)
   async findAll(@Query() query: QueryVehicleDto, @Res() res: Response) {
@@ -48,26 +54,18 @@ export class VehiclesController implements VehiclesControllerPort {
         'VehiclesController.restore',
       );
       return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
-        message:
-          (error instanceof Error ? error.message : undefined) ||
-          validationMessage()[500](),
+        message: (error instanceof Error ? error.message : undefined) || validationMessage()[500](),
       });
     }
   }
 
   @Get(vehicleRoute.detail)
-  async findDetail(
-    @Param('id', ParseIntPipe) id: number,
-    @Res() res: Response,
-  ) {
+  async findDetail(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
     try {
       const result = await this.usecase.findDetail(id);
 
       if (result?.error) {
-        const statusCode =
-          result.error.code === 404
-            ? HttpStatus.NOT_FOUND
-            : HttpStatus.BAD_REQUEST;
+        const statusCode = result.error.code === 404 ? HttpStatus.NOT_FOUND : HttpStatus.BAD_REQUEST;
         return response[statusCode](res, {
           message: result?.error?.message || validationMessage()[500](),
         });
@@ -83,9 +81,7 @@ export class VehiclesController implements VehiclesControllerPort {
         'VehiclesController.findDetail',
       );
       return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
-        message:
-          (error instanceof Error ? error.message : undefined) ||
-          validationMessage()[500](),
+        message: (error instanceof Error ? error.message : undefined) || validationMessage()[500](),
       });
     }
   }
@@ -96,10 +92,7 @@ export class VehiclesController implements VehiclesControllerPort {
       const result = await this.usecase.findOne(id);
 
       if (result?.error) {
-        const statusCode =
-          result.error.code === 404
-            ? HttpStatus.NOT_FOUND
-            : HttpStatus.BAD_REQUEST;
+        const statusCode = result.error.code === 404 ? HttpStatus.NOT_FOUND : HttpStatus.BAD_REQUEST;
         return response[statusCode](res, {
           message: result?.error?.message || validationMessage()[500](),
         });
@@ -121,19 +114,12 @@ export class VehiclesController implements VehiclesControllerPort {
   }
 
   @Post(vehicleRoute.create)
-  async create(
-    @Body() createDto: CreateVehicleDto,
-    @Headers('x-user-id') userId: string,
-    @Res() res: Response,
-  ) {
+  async create(@Body() createDto: CreateVehicleDto, @Headers('x-user-id') userId: string, @Res() res: Response) {
     try {
       const result = await this.usecase.create(createDto, userId);
 
       if (result?.error) {
-        const statusCode =
-          result.error.code === 409
-            ? HttpStatus.CONFLICT
-            : HttpStatus.BAD_REQUEST;
+        const statusCode = result.error.code === 409 ? HttpStatus.CONFLICT : HttpStatus.BAD_REQUEST;
         return response[statusCode](res, {
           message: result?.error?.message || validationMessage()[500](),
         });
@@ -192,19 +178,12 @@ export class VehiclesController implements VehiclesControllerPort {
   }
 
   @Delete(vehicleRoute.delete)
-  async remove(
-    @Param('id', ParseIntPipe) id: number,
-    @Headers('x-user-id') userId: string,
-    @Res() res: Response,
-  ) {
+  async remove(@Param('id', ParseIntPipe) id: number, @Headers('x-user-id') userId: string, @Res() res: Response) {
     try {
       const result = await this.usecase.remove(id, userId);
 
       if (result?.error) {
-        const statusCode =
-          result.error.code === 404
-            ? HttpStatus.NOT_FOUND
-            : HttpStatus.BAD_REQUEST;
+        const statusCode = result.error.code === 404 ? HttpStatus.NOT_FOUND : HttpStatus.BAD_REQUEST;
         return response[statusCode](res, {
           message: result?.error?.message || validationMessage()[500](),
         });
@@ -230,10 +209,7 @@ export class VehiclesController implements VehiclesControllerPort {
       const result = await this.usecase.restore(id);
 
       if (result?.error) {
-        const statusCode =
-          result.error.code === 404
-            ? HttpStatus.NOT_FOUND
-            : HttpStatus.BAD_REQUEST;
+        const statusCode = result.error.code === 404 ? HttpStatus.NOT_FOUND : HttpStatus.BAD_REQUEST;
         return response[statusCode](res, {
           message: result?.error?.message || validationMessage()[500](),
         });
@@ -250,6 +226,32 @@ export class VehiclesController implements VehiclesControllerPort {
       );
       return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
         message: error?.message || validationMessage()[500](),
+      });
+    }
+  }
+
+  @Get(vehicleRoute.lovOrganizations)
+  async lovOrganizations(@Res() res: Response) {
+    try {
+      const result = await this.usecase.lovOrganizations();
+
+      if (result?.error) {
+        return response[HttpStatus.BAD_REQUEST](res, {
+          message: result?.error?.message || validationMessage()[500](),
+        });
+      }
+      return response[HttpStatus.OK](res, {
+        message: validationMessage()[200](),
+        data: result?.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in lovOrganizations',
+        error instanceof Error ? error.stack : undefined,
+        'VehiclesController.lovOrganizations',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: (error instanceof Error ? error.message : undefined) || validationMessage()[500](),
       });
     }
   }

@@ -7,8 +7,7 @@ export class OrderWorker implements OnModuleInit {
   constructor(private readonly rmq: RabbitMQService) {}
 
   async onModuleInit() {
-    const { exchange, retryExchange, queue, retryQueue, routingKey } =
-      RMQ.ORDER;
+    const { exchange, retryExchange, queue, retryQueue, routingKey } = RMQ.ORDER;
 
     // declare exchange + retry exchange
     await this.rmq.assertExchange(exchange);

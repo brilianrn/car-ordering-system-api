@@ -7,6 +7,9 @@ export enum ERoutes {
   USER = `${EPrefix.V1}/user`,
   ROLE = `${EPrefix.V1}/role`,
   VEHICLES = `${EPrefix.V1}/vehicle`,
+  DRIVERS = `${EPrefix.V1}/driver`,
+  UPLOAD = `${EPrefix.V1}/upload`,
+  BOOKINGS = `${EPrefix.V1}/booking`,
 }
 
 export const authRoute = {
@@ -29,4 +32,25 @@ export const vehicleRoute = {
   update: '/:id',
   delete: '/:id',
   restore: '/:id/restore',
+  lovOrganizations: '/lov/organizations',
+};
+
+export const driverRoute = {
+  list: '',
+  eligible: '/eligible',
+  expiredSIM: '/expired-sim',
+  findOne: '/:id/detail',
+  create: '',
+  update: '/:id',
+  delete: '/:id',
+  restore: '/:id/restore',
+};
+
+export const uploadRoute = {
+  upload: '',
+};
+
+export const bookingRoute = {
+  list: '',
+  create: '',
 };

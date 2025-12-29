@@ -2,9 +2,7 @@ import { glob } from 'glob';
 import { join } from 'path';
 
 export const discoverSchedulers = async (): Promise<Function[]> => {
-  const schedulerFiles = await glob(
-    join(process.cwd(), 'dist', 'packages/**/scheduler/*.js'),
-  );
+  const schedulerFiles = await glob(join(process.cwd(), 'dist', 'packages/**/scheduler/*.js'));
 
   const schedulers: Function[] = [];
 
@@ -12,10 +10,7 @@ export const discoverSchedulers = async (): Promise<Function[]> => {
     const module = await import(file);
 
     Object.values(module).forEach((exported: any) => {
-      if (
-        typeof exported === 'function' &&
-        exported.name.endsWith('Scheduler')
-      ) {
+      if (typeof exported === 'function' && exported.name.endsWith('Scheduler')) {
         schedulers.push(exported as Function);
       }
     });

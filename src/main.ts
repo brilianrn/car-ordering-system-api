@@ -2,6 +2,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import 'dotenv/config';
+import { json, urlencoded } from 'express';
 import { AppModule } from './modules';
 import { SchedulerModule } from './modules/scheduler.module';
 import { WorkerModule } from './modules/worker.module';
@@ -18,14 +19,11 @@ async function bootstrap() {
       const app = await NestFactory.create(AppModule, {
         bufferLogs: true,
       });
-      const configService = app.get(ConfigService);
-
-      console.log(
-        'Database URL in main.ts:',
-        configService.get('DATABASE_URL'),
-      );
-
+      app.get(ConfigService);
       app.enableCors();
+
+      app.use(json({ limit: '50mb' }));
+      app.use(urlencoded({ limit: '50mb', extended: true }));
 
       const port = process.env.PORT || 3000;
 
@@ -77,9 +75,7 @@ async function bootstrap() {
     }
 
     default:
-      throw new Error(
-        `❌ Invalid MODE "${mode}". Use api | worker | scheduler`,
-      );
+      throw new Error(`❌ Invalid MODE "${mode}". Use api | worker | scheduler`);
   }
 }
 

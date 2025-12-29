@@ -1,6 +1,6 @@
 import { VehicleStatus } from '@prisma/client';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class QueryVehicleDto {
   @IsOptional()
@@ -36,4 +36,9 @@ export class QueryVehicleDto {
   @IsOptional()
   @IsEnum(VehicleStatus)
   status?: VehicleStatus;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  orgUnitId?: number; // Filter vehicles available for this organization (dedicated + pool)
 }

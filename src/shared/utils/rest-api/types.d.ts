@@ -2,11 +2,7 @@ import { HttpStatus } from '@nestjs/common';
 import { AxiosRequestConfig } from 'axios';
 
 export interface RequestAPI {
-  get: (payload: {
-    endpoint: string;
-    queryParam?: object;
-    config?: AxiosRequestConfig;
-  }) => Promise<ResponseREST>;
+  get: (payload: { endpoint: string; queryParam?: object; config?: AxiosRequestConfig }) => Promise<ResponseREST>;
   post: (payload: {
     endpoint: string;
     body?: object;

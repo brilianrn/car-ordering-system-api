@@ -36,10 +36,7 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async consume(
-    queue: string,
-    handler: (msg: amqp.ConsumeMessage) => Promise<void>,
-  ) {
+  async consume(queue: string, handler: (msg: amqp.ConsumeMessage) => Promise<void>) {
     await this.channel.consume(queue, async (msg) => {
       if (!msg) return;
       try {

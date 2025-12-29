@@ -6,12 +6,32 @@ datasource db {
   provider = "postgresql"
 }
 
+model OrganizationUnit {
+  id         Int                @id @default(autoincrement())
+  code       String             @unique @map("code")
+  name       String             @map("name")
+  type       String             @map("type")
+  parentCode String?            @map("parent_code")
+  parent     OrganizationUnit?  @relation("OrganizationHierarchy", fields: [parentCode], references: [code])
+  children   OrganizationUnit[] @relation("OrganizationHierarchy")
+  employees  Employee[]
+  vehicles   Vehicle[]
+  createdAt  DateTime           @default(now()) @map("created_at")
+  createdBy  String             @map("created_by")
+  updatedAt  DateTime           @updatedAt @map("updated_at")
+  updatedBy  String?            @map("updated_by")
+  deletedAt DateTime?           @map("deleted_at")
+  deletedBy String?             @map("deleted_by")
+
+  @@map("organization_unit")
+}
+
 model Employee {
   id              Int              @id @default(autoincrement())
   employeeId      String           @unique @map("employee_id")
   fullName        String           @map("full_name")
   email           String           @unique
-  orgUnitCode     String           @map("org_unit_code")
+  orgUnitId       Int              @map("org_unit_id")
   costCenter      String?          @map("cost_center")
   isActive        Boolean          @default(true) @map("is_active")
   effectiveFrom   DateTime         @map("effective_from")
@@ -23,6 +43,7 @@ model Employee {
   updatedBy       String?          @map("updated_by")
   deletedAt       DateTime?        @map("deleted_at")
   deletedBy       String?          @map("deleted_by")
+  orgUnit         OrganizationUnit @relation(fields: [orgUnitId], references: [id])
   approvalHeaders ApprovalHeader[] @relation("ApproverL1Relation")
   bookings        Booking[]
   approverL1      Employee?        @relation("Hierarchy", fields: [approverL1Id], references: [employeeId])
@@ -62,6 +83,7 @@ model Vehicle {
   plantLocation   String           @map("plant_location")
   divisionFlag    String?          @map("division_flag")
   isDedicated     Boolean          @default(false) @map("is_dedicated")
+  dedicatedOrgId  Int?             @map("dedicated_org_id")
   defaultDriverId Int?             @unique @map("default_driver_id")
   createdAt       DateTime         @default(now()) @map("created_at")
   createdBy       String           @map("created_by")
@@ -73,6 +95,8 @@ model Vehicle {
   travelOrders    SuratJalan[]     @relation("SJVehicle")
   defaultDriver   Driver?          @relation("DefaultDriverRelation", fields: [defaultDriverId], references: [id])
   vendor          Vendor?          @relation(fields: [vendorId], references: [id])
+  dedicatedOrg    OrganizationUnit? @relation(fields: [dedicatedOrgId], references: [id])
+  images          VehicleImage[]
 
   @@map("vehicle")
 }
@@ -91,6 +115,8 @@ model Driver {
   plantLocation    String           @map("plant_location")
   realtimeStatus   String           @default("Idle") @map("realtime_status")
   isDedicated      Boolean          @default(false) @map("is_dedicated")
+  ktpAssetId       Int?             @map("ktp_asset_id")
+  simAssetId       Int?             @map("sim_asset_id")
   createdAt        DateTime         @default(now()) @map("created_at")
   createdBy        String           @map("created_by")
   updatedAt        DateTime         @updatedAt @map("updated_at")
@@ -101,6 +127,8 @@ model Driver {
   vendor           Vendor?          @relation(fields: [vendorId], references: [id])
   travelOrders     SuratJalan[]     @relation("SJDriver")
   defaultVehicle   Vehicle?         @relation("DefaultDriverRelation")
+  ktpAsset         Asset?           @relation("DriverKTP", fields: [ktpAssetId], references: [id])
+  simAsset         Asset?           @relation("DriverSIM", fields: [simAssetId], references: [id])
 
   @@map("driver")
 }
@@ -387,6 +415,36 @@ model AuditLog {
   notificationJobId Int?     @map("notification_job_id")
 
   @@map("audit_log")
+}
+
+model Asset {
+  id            Int            @id @default(autoincrement())
+  fileName      String         @map("file_name")
+  url           String
+  fileType      String?        @map("file_type")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  createdBy     String         @map("created_by")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  updatedBy     String?        @map("updated_by")
+  deletedAt     DateTime?      @map("deleted_at")
+  deletedBy     String?        @map("deleted_by")
+  vehicleImages VehicleImage[]
+  driverKtp     Driver[]       @relation("DriverKTP")
+  driverSim     Driver[]       @relation("DriverSIM")
+
+  @@map("asset")
+}
+
+model VehicleImage {
+  id        Int      @id @default(autoincrement())
+  vehicleId Int      @map("vehicle_id")
+  assetId   Int      @map("asset_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String   @map("created_by")
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id])
+  asset     Asset    @relation(fields: [assetId], references: [id])
+
+  @@map("vehicle_image")
 }
 
 enum Role {
