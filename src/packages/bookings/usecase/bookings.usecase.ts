@@ -1,12 +1,16 @@
 import { S3Service } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
+import { NotificationService } from '@/shared/utils/notification.service';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { BookingStatus, Prisma, ServiceType } from '@prisma/client';
+import { IBookingWithRelations } from '../domain/entities';
+import { transformBookingWithPresignedUrls } from '../domain/helpers/presigned-url.helper';
 import { IAvailableVehicle, IBooking, IBookingListResponse } from '../domain/response';
 import { CreateBookingDto } from '../dto/create-booking.dto';
 import { QueryAvailableVehiclesDto } from '../dto/query-available-vehicles.dto';
 import { QueryBookingDto } from '../dto/query-booking.dto';
+import { UpdateBookingDto } from '../dto/update-booking.dto';
 import { BookingsRepositoryPort } from '../ports/repository.port';
 import { BookingsUsecasePort } from '../ports/usecase.port';
 
@@ -16,6 +20,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
     @Inject('BookingsRepositoryPort')
     private readonly repository: BookingsRepositoryPort,
     private readonly s3Service: S3Service,
+    private readonly notificationService: NotificationService,
   ) {
     this.repository = repository;
   }
@@ -26,11 +31,6 @@ export class BookingsUseCase implements BookingsUsecasePort {
     userId: string,
   ): Promise<IUsecaseResponse<IBooking>> => {
     try {
-      // ============================================
-      // VALIDATION PHASE (Before Transaction)
-      // All validations must pass before starting transaction
-      // ============================================
-
       // 1. Validate Category exists
       const category = await this.repository.findCategoryById(createDto.categoryId);
       if (!category) {
@@ -53,25 +53,30 @@ export class BookingsUseCase implements BookingsUsecasePort {
         };
       }
 
-      // 3. Validate supervisor exists (check approverL1Id field)
-      if (!requester.approverL1Id) {
-        return {
-          error: {
-            message: `Supervisor (approverL1Id) not found for employee ${requesterId}`,
-            code: HttpStatus.BAD_REQUEST,
-          },
-        };
-      }
+      // Determine if this is a draft or submit
+      const isDraft = createDto.isDraft ?? false;
 
-      // 4. Validate supervisor employee exists in database
-      const supervisor = await this.repository.findEmployeeByEmployeeId(requester.approverL1Id);
-      if (!supervisor) {
-        return {
-          error: {
-            message: `Supervisor with ID ${requester.approverL1Id} not found in Employee table`,
-            code: HttpStatus.NOT_FOUND,
-          },
-        };
+      // 3. Validate supervisor exists ONLY for submit (not required for draft)
+      if (!isDraft) {
+        if (!requester.approverL1Id) {
+          return {
+            error: {
+              message: `Supervisor (approverL1Id) not found for employee ${requesterId}. Required for submitting booking.`,
+              code: HttpStatus.BAD_REQUEST,
+            },
+          };
+        }
+
+        // 4. Validate supervisor employee exists in database
+        const supervisor = await this.repository.findEmployeeByEmployeeId(requester.approverL1Id);
+        if (!supervisor) {
+          return {
+            error: {
+              message: `Supervisor with ID ${requester.approverL1Id} not found in Employee table`,
+              code: HttpStatus.NOT_FOUND,
+            },
+          };
+        }
       }
 
       // 5. Validate vehicle availability if vehicleId is provided
@@ -102,11 +107,9 @@ export class BookingsUseCase implements BookingsUsecasePort {
       // This must be done before transaction to ensure uniqueness
       const bookingNumber = await this.generateBookingNumber();
 
-      // 7. Calculate SLA due date: currentDate + 24 hours
+      // 7. Calculate SLA due date: currentDate + 24 hours (only for submit)
       const assignedAt = new Date(); // Current date/time
       const slaDueAt = new Date(assignedAt.getTime() + 24 * 60 * 60 * 1000); // Exactly 24 hours from now
-
-      // Prepare transaction data
       const bookingData: Prisma.BookingCreateInput = {
         bookingNumber,
         requester: {
@@ -121,8 +124,14 @@ export class BookingsUseCase implements BookingsUsecasePort {
         endAt: new Date(createDto.endAt),
         passengerCount: createDto.passengerCount,
         resourceMode: createDto.resourceMode,
-        bookingStatus: BookingStatus.SUBMITTED, // Set to SUBMITTED when created
+        bookingStatus: isDraft ? BookingStatus.DRAFT : BookingStatus.SUBMITTED, // Set status based on isDraft flag
         createdBy: userId,
+        ...(createDto.passengerNames && { passengerNames: createDto.passengerNames as Prisma.InputJsonValue }),
+        ...(createDto.vehicleId && {
+          vehicle: {
+            connect: { id: createDto.vehicleId },
+          },
+        }),
       };
 
       // Prepare segment data (booking will be connected in repository)
@@ -139,17 +148,20 @@ export class BookingsUseCase implements BookingsUsecasePort {
         createdBy: userId,
       };
 
-      // Prepare approval header data (booking will be connected in repository)
+      // Prepare approval header data (only for submit, not for draft)
       // approverL1Id is taken from requester.approverL1Id field
-      const approvalHeaderData: Omit<Prisma.ApprovalHeaderCreateInput, 'booking'> = {
-        approverL1: {
-          connect: { employeeId: requester.approverL1Id }, // From requester's approverL1Id field
-        },
-        assignedAt, // Current date/time
-        slaDueAt, // assignedAt + 24 hours (exactly 24 * 60 * 60 * 1000 milliseconds)
-        decisionL1: null, // PENDING status
-        createdBy: userId,
-      };
+      let approvalHeaderData: Omit<Prisma.ApprovalHeaderCreateInput, 'booking'> | undefined;
+      if (!isDraft && requester.approverL1Id) {
+        approvalHeaderData = {
+          approverL1: {
+            connect: { employeeId: requester.approverL1Id }, // From requester's approverL1Id field
+          },
+          assignedAt, // Current date/time
+          slaDueAt, // assignedAt + 24 hours (exactly 24 * 60 * 60 * 1000 milliseconds)
+          decisionL1: null, // PENDING status
+          createdBy: userId,
+        };
+      }
 
       // ============================================
       // TRANSACTION PHASE
@@ -159,10 +171,43 @@ export class BookingsUseCase implements BookingsUsecasePort {
       const booking = await this.repository.createWithTransaction({
         booking: bookingData,
         segment: segmentData,
-        approvalHeader: approvalHeaderData,
+        approvalHeader: approvalHeaderData, // undefined for draft bookings
       });
 
-      return { data: booking as IBooking };
+      // ============================================
+      // NOTIFICATION PHASE (only for submit)
+      // Send email and push notification to approver
+      // Notification failure should not block booking creation
+      // ============================================
+      if (!isDraft && requester.approverL1Id) {
+        try {
+          const supervisor = await this.repository.findEmployeeByEmployeeId(requester.approverL1Id);
+          if (supervisor) {
+            await this.notificationService.sendBookingSubmissionNotifications(
+              supervisor.email,
+              supervisor.employeeId,
+              bookingNumber,
+              requester.fullName,
+              createDto.purpose,
+            );
+          }
+        } catch (notificationError) {
+          // Log error but don't fail the booking creation
+          Logger.error(
+            notificationError instanceof Error ? notificationError.message : 'Failed to send notifications',
+            notificationError instanceof Error ? notificationError.stack : undefined,
+            'BookingsUseCase.create - Notification',
+          );
+        }
+      }
+
+      // Fetch booking with all relations including vehicle
+      const bookingWithRelations = (await this.repository.findById(booking.id)) as IBookingWithRelations | null;
+
+      // Transform S3 keys into presigned URLs for vehicle images
+      const bookingWithPresignedUrls = await transformBookingWithPresignedUrls(bookingWithRelations, this.s3Service);
+
+      return { data: bookingWithPresignedUrls as IBooking };
     } catch (error) {
       // If transaction fails, Prisma automatically rolls back all changes
       // Log the error for debugging
@@ -187,16 +232,30 @@ export class BookingsUseCase implements BookingsUsecasePort {
 
       const where: Prisma.BookingWhereInput = {};
 
-      // Filter by requesterId (for "My Bookings" view)
-      if (requesterId) {
-        where.requesterId = requesterId;
-      } else if (query.requesterId) {
-        where.requesterId = query.requesterId;
-      }
+      // Determine the effective requesterId (from parameter or query)
+      const effectiveRequesterId = requesterId || query.requesterId;
 
-      // Filter by booking status
-      if (query.bookingStatus) {
-        where.bookingStatus = query.bookingStatus;
+      // Build base conditions for requesterId and bookingStatus
+      // IMPORTANT: Draft bookings can only be seen by the requester who created them
+      if (effectiveRequesterId) {
+        // User's own bookings: include DRAFT and non-DRAFT
+        // If bookingStatus filter is provided, apply it within the requesterId scope
+        if (query.bookingStatus) {
+          // Filter by specific status for this requester
+          where.requesterId = effectiveRequesterId;
+          where.bookingStatus = query.bookingStatus;
+        } else {
+          // Show all statuses for this requester (DRAFT + non-DRAFT)
+          where.requesterId = effectiveRequesterId;
+          // No bookingStatus filter - show all statuses
+        }
+      } else {
+        // No requesterId: exclude DRAFT bookings (only show submitted bookings)
+        // Unless bookingStatus filter is explicitly provided
+        if (query.bookingStatus) {
+          // Apply the status filter
+          where.bookingStatus = query.bookingStatus;
+        }
       }
 
       // Filter by service type
@@ -245,21 +304,32 @@ export class BookingsUseCase implements BookingsUsecasePort {
       }
 
       // General search (searches in bookingNumber and purpose)
+      // Combine search with existing conditions using AND
       if (query.search) {
-        where.OR = [
-          {
-            bookingNumber: {
-              contains: query.search,
-              mode: 'insensitive',
+        const searchConditions: Prisma.BookingWhereInput = {
+          OR: [
+            {
+              bookingNumber: {
+                contains: query.search,
+                mode: 'insensitive' as Prisma.QueryMode,
+              },
             },
-          },
-          {
-            purpose: {
-              contains: query.search,
-              mode: 'insensitive',
+            {
+              purpose: {
+                contains: query.search,
+                mode: 'insensitive' as Prisma.QueryMode,
+              },
             },
-          },
-        ];
+          ],
+        };
+
+        // If we already have conditions, combine them with AND
+        // Otherwise, just use the search OR conditions
+        if (Object.keys(where).length > 0) {
+          where.AND = [{ ...where }, searchConditions];
+        } else {
+          where.OR = searchConditions.OR as Prisma.BookingWhereInput[];
+        }
       }
 
       const [data, total] = await Promise.all([
@@ -294,13 +364,10 @@ export class BookingsUseCase implements BookingsUsecasePort {
       ]);
 
       // Transform S3 keys into presigned URLs if any vehicle/asset images are involved
-      // Note: Currently, bookings don't directly have images, but if they do in the future,
-      // this is where we would transform them
       const dataWithPresignedUrls = await Promise.all(
-        data.map(async (booking: any) => {
-          // If booking has assignment with vehicle images, transform them here
-          // For now, just return the booking as is
-          return booking;
+        data.map(async (booking) => {
+          const bookingWithRelations = booking as IBookingWithRelations;
+          return transformBookingWithPresignedUrls(bookingWithRelations, this.s3Service);
         }),
       );
 
@@ -362,6 +429,298 @@ export class BookingsUseCase implements BookingsUsecasePort {
     }
   };
 
+  update = async (
+    id: number,
+    updateDto: UpdateBookingDto,
+    requesterId: string,
+    userId: string,
+  ): Promise<IUsecaseResponse<IBooking>> => {
+    try {
+      // 1. Find booking by ID
+      const existingBooking = await this.repository.findById(id);
+      if (!existingBooking) {
+        return {
+          error: {
+            message: `Booking with ID ${id} not found`,
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
+      }
+
+      // 2. Validate booking status is DRAFT (only DRAFT bookings can be updated)
+      // Exception: If isDraft is explicitly false, we allow update to submit the booking
+      const shouldSubmit = updateDto.isDraft === false;
+      if (existingBooking.bookingStatus !== BookingStatus.DRAFT && !shouldSubmit) {
+        return {
+          error: {
+            message: `Booking can only be updated when status is DRAFT. Current status: ${existingBooking.bookingStatus}`,
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
+      }
+
+      // 3. Validate requester is the owner of the booking
+      if (existingBooking.requesterId !== requesterId) {
+        return {
+          error: {
+            message: `You can only update your own bookings`,
+            code: HttpStatus.FORBIDDEN,
+          },
+        };
+      }
+
+      // 4. Validate supervisor exists if submitting (isDraft: false)
+      let requester: { employeeId: string; approverL1Id: string | null; fullName: string; email: string } | null = null;
+      if (shouldSubmit) {
+        requester = await this.repository.findEmployeeByEmployeeId(requesterId);
+        if (!requester) {
+          return {
+            error: {
+              message: `Employee with ID ${requesterId} not found`,
+              code: HttpStatus.NOT_FOUND,
+            },
+          };
+        }
+
+        if (!requester.approverL1Id) {
+          return {
+            error: {
+              message: `Supervisor (approverL1Id) not found for employee ${requesterId}. Required for submitting booking.`,
+              code: HttpStatus.BAD_REQUEST,
+            },
+          };
+        }
+
+        // Validate supervisor employee exists in database
+        const supervisor = await this.repository.findEmployeeByEmployeeId(requester.approverL1Id);
+        if (!supervisor) {
+          return {
+            error: {
+              message: `Supervisor with ID ${requester.approverL1Id} not found in Employee table`,
+              code: HttpStatus.NOT_FOUND,
+            },
+          };
+        }
+      }
+
+      // 5. Validate category if provided
+      if (updateDto.categoryId) {
+        const category = await this.repository.findCategoryById(updateDto.categoryId);
+        if (!category) {
+          return {
+            error: {
+              message: `Category with ID ${updateDto.categoryId} not found`,
+              code: HttpStatus.NOT_FOUND,
+            },
+          };
+        }
+      }
+
+      // 5. Validate vehicle availability if vehicleId is provided
+      if (updateDto.vehicleId) {
+        const startDate = updateDto.startAt ? new Date(updateDto.startAt) : new Date(existingBooking.startAt);
+        const endDate = updateDto.endAt ? new Date(updateDto.endAt) : new Date(existingBooking.endAt);
+
+        const availableVehicles = await this.repository.findAvailableVehicles({
+          startAt: startDate,
+          endAt: endDate,
+        });
+
+        const isVehicleAvailable = availableVehicles.some((vehicle) => vehicle.id === updateDto.vehicleId);
+
+        if (!isVehicleAvailable) {
+          return {
+            error: {
+              message: `Vehicle with ID ${updateDto.vehicleId} is not available for the requested date range`,
+              code: HttpStatus.BAD_REQUEST,
+            },
+          };
+        }
+      }
+
+      // 7. Prepare update data
+      const updateData: Prisma.BookingUpdateInput = {
+        updatedBy: userId,
+      };
+
+      if (updateDto.categoryId !== undefined) {
+        updateData.category = { connect: { id: updateDto.categoryId } };
+      }
+
+      // Handle purpose and additionalNotes
+      // If additionalNotes is provided, append it to purpose
+      if (updateDto.purpose !== undefined || updateDto.additionalNotes !== undefined) {
+        const currentPurpose = updateDto.purpose !== undefined ? updateDto.purpose : existingBooking.purpose;
+        let finalPurpose = currentPurpose || '';
+
+        if (updateDto.additionalNotes) {
+          // Append additional notes to purpose
+          finalPurpose = finalPurpose
+            ? `${finalPurpose}\n\nAdditional Notes: ${updateDto.additionalNotes}`
+            : `Additional Notes: ${updateDto.additionalNotes}`;
+        }
+
+        updateData.purpose = finalPurpose;
+      }
+
+      if (updateDto.startAt !== undefined) {
+        updateData.startAt = new Date(updateDto.startAt);
+      }
+
+      if (updateDto.endAt !== undefined) {
+        updateData.endAt = new Date(updateDto.endAt);
+      }
+
+      if (updateDto.passengerCount !== undefined) {
+        updateData.passengerCount = updateDto.passengerCount;
+      }
+
+      if (updateDto.passengerNames !== undefined) {
+        updateData.passengerNames = updateDto.passengerNames as Prisma.InputJsonValue; // Store as JSON
+      }
+
+      if (updateDto.serviceType !== undefined) {
+        updateData.serviceType = updateDto.serviceType;
+      }
+
+      if (updateDto.resourceMode !== undefined) {
+        updateData.resourceMode = updateDto.resourceMode;
+      }
+
+      // Handle bookingStatus update based on isDraft flag
+      if (updateDto.isDraft !== undefined) {
+        if (updateDto.isDraft === false) {
+          // Submit booking: Change status to SUBMITTED
+          updateData.bookingStatus = BookingStatus.SUBMITTED;
+        } else {
+          // Keep as DRAFT
+          updateData.bookingStatus = BookingStatus.DRAFT;
+        }
+      }
+
+      // Handle vehicleId update
+      // Note: Using type assertion because Prisma client may not have vehicle relation yet
+      const updateDataWithVehicle = updateData as Prisma.BookingUpdateInput & {
+        vehicle?: { disconnect?: boolean } | { connect?: { id: number } };
+      };
+      if (updateDto.vehicleId !== undefined) {
+        if (updateDto.vehicleId === null) {
+          // Disconnect vehicle if vehicleId is explicitly null
+          updateDataWithVehicle.vehicle = { disconnect: true };
+        } else {
+          // Connect or update vehicle
+          updateDataWithVehicle.vehicle = { connect: { id: updateDto.vehicleId } };
+        }
+      }
+
+      // 8. Update booking
+      await this.repository.update(id, updateDataWithVehicle as Prisma.BookingUpdateInput);
+
+      // 9. Create approval header if submitting (isDraft: false)
+      if (shouldSubmit && requester && requester.approverL1Id) {
+        // Check if approval header already exists
+        const existingApprovalHeader = await this.repository.findApprovalHeaderByBookingId(id);
+
+        if (!existingApprovalHeader) {
+          // Calculate SLA due date: currentDate + 24 hours
+          const assignedAt = new Date();
+          const slaDueAt = new Date(assignedAt.getTime() + 24 * 60 * 60 * 1000); // Exactly 24 hours from now
+
+          // Create approval header
+          await this.repository.createApprovalHeader({
+            booking: { connect: { id } },
+            approverL1: { connect: { employeeId: requester.approverL1Id } },
+            assignedAt,
+            slaDueAt,
+            decisionL1: null, // PENDING status
+            createdBy: userId,
+          });
+
+          // Send notification to supervisor
+          try {
+            if (requester && requester.approverL1Id) {
+              const supervisor = await this.repository.findEmployeeByEmployeeId(requester.approverL1Id);
+              if (supervisor) {
+                const bookingNumber = existingBooking.bookingNumber;
+                const purpose =
+                  typeof updateData.purpose === 'string' ? updateData.purpose : existingBooking.purpose || '';
+                await this.notificationService.sendBookingSubmissionNotifications(
+                  supervisor.email,
+                  supervisor.employeeId,
+                  bookingNumber,
+                  requester.fullName,
+                  purpose,
+                );
+              }
+            }
+          } catch (notificationError) {
+            // Log error but don't fail the booking update
+            Logger.error(
+              notificationError instanceof Error ? notificationError.message : 'Failed to send notifications',
+              notificationError instanceof Error ? notificationError.stack : undefined,
+              'BookingsUseCase.update - Notification',
+            );
+          }
+        }
+      }
+
+      // 10. Update segment if provided
+      if (updateDto.segment) {
+        const segmentData: Prisma.BookingSegmentUpdateInput = {};
+
+        if (updateDto.segment.from !== undefined) {
+          segmentData.from = updateDto.segment.from;
+        }
+
+        if (updateDto.segment.to !== undefined) {
+          segmentData.to = updateDto.segment.to;
+        }
+
+        // Update segment type based on serviceType
+        if (updateDto.serviceType !== undefined) {
+          segmentData.type =
+            updateDto.serviceType === ServiceType.DROP
+              ? 'DROP'
+              : updateDto.serviceType === ServiceType.PICKUP
+                ? 'PICKUP'
+                : 'BOTH';
+        } else if (existingBooking.serviceType) {
+          segmentData.type =
+            existingBooking.serviceType === ServiceType.DROP
+              ? 'DROP'
+              : existingBooking.serviceType === ServiceType.PICKUP
+                ? 'PICKUP'
+                : 'BOTH';
+        }
+
+        if (Object.keys(segmentData).length > 0) {
+          segmentData.updatedBy = userId;
+          await this.repository.updateSegment(id, segmentData);
+        }
+      }
+
+      // 11. Fetch updated booking with relations
+      const booking = (await this.repository.findById(id)) as IBookingWithRelations | null;
+
+      // Transform S3 keys into presigned URLs for vehicle images
+      const bookingWithPresignedUrls = await transformBookingWithPresignedUrls(booking, this.s3Service);
+
+      return { data: bookingWithPresignedUrls as IBooking };
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in update booking',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsUseCase.update',
+      );
+      return {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to update booking',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
+  };
+
   /**
    * Generate unique booking number with format: BK-YYYYMMDD-RANDOM
    * Example: BK-20241224-A1B2C3
@@ -413,4 +772,46 @@ export class BookingsUseCase implements BookingsUsecasePort {
     // Booking number is unique
     return bookingNumber;
   }
+
+  findOne = async (id: number, requesterId?: string): Promise<IUsecaseResponse<IBooking>> => {
+    try {
+      const booking = (await this.repository.findById(id)) as IBookingWithRelations | null;
+
+      if (!booking) {
+        return {
+          error: {
+            message: `Booking with ID ${id} not found`,
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
+      }
+
+      // Optional: Validate ownership for DRAFT bookings (only requester can view their own drafts)
+      if (booking.bookingStatus === BookingStatus.DRAFT && requesterId && booking.requesterId !== requesterId) {
+        return {
+          error: {
+            message: 'You are not authorized to view this booking',
+            code: HttpStatus.FORBIDDEN,
+          },
+        };
+      }
+
+      // Transform S3 keys into presigned URLs for vehicle images
+      const bookingWithPresignedUrls = await transformBookingWithPresignedUrls(booking, this.s3Service);
+
+      return { data: bookingWithPresignedUrls as IBooking };
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findOne',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsUseCase.findOne',
+      );
+      return {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to fetch booking details',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
+  };
 }

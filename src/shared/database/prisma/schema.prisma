@@ -20,8 +20,8 @@ model OrganizationUnit {
   createdBy  String             @map("created_by")
   updatedAt  DateTime           @updatedAt @map("updated_at")
   updatedBy  String?            @map("updated_by")
-  deletedAt DateTime?           @map("deleted_at")
-  deletedBy String?             @map("deleted_by")
+  deletedAt  DateTime?          @map("deleted_at")
+  deletedBy  String?            @map("deleted_by")
 
   @@map("organization_unit")
 }
@@ -69,32 +69,33 @@ model Vendor {
 }
 
 model Vehicle {
-  id              Int              @id @default(autoincrement())
-  vehicleCode     String           @unique @map("vehicle_code")
-  licensePlate    String           @unique @map("license_plate")
-  vendorId        Int?             @map("vendor_id")
-  brandModel      String           @map("brand_model")
-  vehicleType     String           @map("vehicle_type")
+  id              Int               @id @default(autoincrement())
+  vehicleCode     String            @unique @map("vehicle_code")
+  licensePlate    String            @unique @map("license_plate")
+  vendorId        Int?              @map("vendor_id")
+  brandModel      String            @map("brand_model")
+  vehicleType     String            @map("vehicle_type")
   year            Int
   transmission    TransmissionType
-  seatCapacity    Int              @map("seat_capacity")
-  fuelConsumption Float            @map("fuel_consumption")
-  status          VehicleStatus    @default(ACTIVE)
-  plantLocation   String           @map("plant_location")
-  divisionFlag    String?          @map("division_flag")
-  isDedicated     Boolean          @default(false) @map("is_dedicated")
-  dedicatedOrgId  Int?             @map("dedicated_org_id")
-  defaultDriverId Int?             @unique @map("default_driver_id")
-  createdAt       DateTime         @default(now()) @map("created_at")
-  createdBy       String           @map("created_by")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
-  updatedBy       String?          @map("updated_by")
-  deletedAt       DateTime?        @map("deleted_at")
-  deletedBy       String?          @map("deleted_by")
-  assignments     Assignment[]     @relation("AssignmentVehicle")
-  travelOrders    SuratJalan[]     @relation("SJVehicle")
-  defaultDriver   Driver?          @relation("DefaultDriverRelation", fields: [defaultDriverId], references: [id])
-  vendor          Vendor?          @relation(fields: [vendorId], references: [id])
+  seatCapacity    Int               @map("seat_capacity")
+  fuelConsumption Float             @map("fuel_consumption")
+  status          VehicleStatus     @default(ACTIVE)
+  plantLocation   String            @map("plant_location")
+  divisionFlag    String?           @map("division_flag")
+  isDedicated     Boolean           @default(false) @map("is_dedicated")
+  dedicatedOrgId  Int?              @map("dedicated_org_id")
+  defaultDriverId Int?              @unique @map("default_driver_id")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  createdBy       String            @map("created_by")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  updatedBy       String?           @map("updated_by")
+  deletedAt       DateTime?         @map("deleted_at")
+  deletedBy       String?           @map("deleted_by")
+  assignments     Assignment[]      @relation("AssignmentVehicle")
+  travelOrders    SuratJalan[]      @relation("SJVehicle")
+  bookings        Booking[]         @relation("BookingVehicle")
+  defaultDriver   Driver?           @relation("DefaultDriverRelation", fields: [defaultDriverId], references: [id])
+  vendor          Vendor?           @relation(fields: [vendorId], references: [id])
   dedicatedOrg    OrganizationUnit? @relation(fields: [dedicatedOrgId], references: [id])
   images          VehicleImage[]
 
@@ -199,12 +200,14 @@ model Booking {
   startAt        DateTime         @map("start_at")
   endAt          DateTime         @map("end_at")
   passengerCount Int              @map("passenger_count")
+  passengerNames Json?            @map("passenger_names") // Array of passenger names
   categoryId     Int              @map("category_id")
   resourceMode   ResourceMode     @map("resource_mode")
   bookingStatus  BookingStatus    @default(DRAFT) @map("booking_status")
   cancelReason   String?          @map("cancel_reason")
   autoCancelAt   DateTime?        @map("auto_cancel_at")
   carpoolGroupId Int?             @map("carpool_group_id")
+  vehicleId      Int?             @map("vehicle_id") // Selected vehicle ID (can be changed by GA at L2)
   createdAt      DateTime         @default(now()) @map("created_at")
   createdBy      String           @map("created_by")
   updatedAt      DateTime         @updatedAt @map("updated_at")
@@ -216,28 +219,71 @@ model Booking {
   carpoolGroup   CarpoolGroup?    @relation("CarpoolMembers", fields: [carpoolGroupId], references: [id])
   category       Category         @relation(fields: [categoryId], references: [id])
   requester      Employee         @relation(fields: [requesterId], references: [employeeId])
+  vehicle        Vehicle?         @relation("BookingVehicle", fields: [vehicleId], references: [id])
   segments       BookingSegment[]
   hostCarpool    CarpoolGroup?    @relation("CarpoolHost")
+  joinerInvite   CarpoolInvite?   @relation("CarpoolJoinerInvite")
+  hostInvites    CarpoolInvite[]  @relation("CarpoolHostInvite")
 
   @@map("booking")
 }
 
 model CarpoolGroup {
-  id             Int       @id @default(autoincrement())
-  hostBookingId  Int       @unique @map("host_booking_id")
-  status         String    @default("Active") @map("status")
-  combinedRoute  Json?     @map("combined_route")
-  sharedCost     Json?     @map("shared_cost")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  createdBy      String    @map("created_by")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-  updatedBy      String?   @map("updated_by")
-  deletedAt      DateTime? @map("deleted_at")
-  deletedBy      String?   @map("deleted_by")
-  memberBookings Booking[] @relation("CarpoolMembers")
-  hostBooking    Booking   @relation("CarpoolHost", fields: [hostBookingId], references: [id])
+  id             Int             @id @default(autoincrement())
+  hostBookingId  Int             @unique @map("host_booking_id")
+  status         String          @default("Active") @map("status")
+  combinedRoute  Json?           @map("combined_route")
+  sharedCost     Json?           @map("shared_cost")
+  costMode       String?         @map("cost_mode") // EQUAL, PROPORTIONAL_DISTANCE
+  createdAt      DateTime        @default(now()) @map("created_at")
+  createdBy      String          @map("created_by")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  updatedBy      String?         @map("updated_by")
+  deletedAt      DateTime?       @map("deleted_at")
+  deletedBy      String?         @map("deleted_by")
+  memberBookings Booking[]       @relation("CarpoolMembers")
+  hostBooking    Booking         @relation("CarpoolHost", fields: [hostBookingId], references: [id])
+  invites        CarpoolInvite[]
 
   @@map("carpool_group")
+}
+
+model CarpoolInvite {
+  id              Int                  @id @default(autoincrement())
+  carpoolGroupId  Int                  @map("carpool_group_id")
+  joinerBookingId Int                  @unique @map("joiner_booking_id")
+  hostBookingId   Int                  @map("host_booking_id")
+  consentStatus   CarpoolConsentStatus @default(PENDING) @map("consent_status")
+  invitedAt       DateTime             @default(now()) @map("invited_at")
+  respondedAt     DateTime?            @map("responded_at")
+  expiresAt       DateTime?            @map("expires_at")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  createdBy       String               @map("created_by")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+  updatedBy       String?              @map("updated_by")
+  deletedAt       DateTime?            @map("deleted_at")
+  deletedBy       String?              @map("deleted_by")
+  carpoolGroup    CarpoolGroup         @relation(fields: [carpoolGroupId], references: [id])
+  joinerBooking   Booking              @relation("CarpoolJoinerInvite", fields: [joinerBookingId], references: [id])
+  hostBooking     Booking              @relation("CarpoolHostInvite", fields: [hostBookingId], references: [id])
+
+  @@map("carpool_invite")
+}
+
+model CarpoolAuditLog {
+  id              Int               @id @default(autoincrement())
+  carpoolGroupId  Int?              @map("carpool_group_id")
+  hostBookingId   Int?              @map("host_booking_id")
+  joinerBookingId Int?              @map("joiner_booking_id")
+  actionType      CarpoolActionType @map("action_type")
+  userId          String            @map("user_id")
+  timestamp       DateTime          @default(now()) @map("timestamp")
+  oldValue        Json?             @map("old_value")
+  newValue        Json?             @map("new_value")
+  metadata        Json?             @map("metadata")
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  @@map("carpool_audit_log")
 }
 
 model ApprovalHeader {
@@ -517,4 +563,21 @@ enum VerifyStatus {
   IN_REVIEW
   VERIFIED
   BLOCKED
+}
+
+enum CarpoolConsentStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  EXPIRED
+}
+
+enum CarpoolActionType {
+  MATCHED
+  INVITE
+  APPROVE
+  DECLINE
+  MERGE
+  UNMERGE
+  COST_RECALCULATED
 }

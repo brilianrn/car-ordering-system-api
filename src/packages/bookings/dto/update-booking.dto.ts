@@ -6,7 +6,6 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
-  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
@@ -16,50 +15,54 @@ import {
 
 export class BookingSegmentDto {
   @IsString()
-  @IsNotEmpty()
-  from: string;
+  @IsOptional()
+  from?: string;
 
   @IsString()
-  @IsNotEmpty()
-  to: string;
+  @IsOptional()
+  to?: string;
 }
 
-export class CreateBookingDto {
+export class UpdateBookingDto {
+  @IsOptional()
   @IsInt()
-  @IsNotEmpty()
-  categoryId: number;
+  categoryId?: number;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  purpose: string;
+  purpose?: string;
 
+  @IsOptional()
   @IsDateString()
-  @IsNotEmpty()
-  startAt: string;
+  startAt?: string; // ISO 8601 string
 
+  @IsOptional()
   @IsDateString()
-  @IsNotEmpty()
-  endAt: string;
+  endAt?: string; // ISO 8601 string
 
+  @IsOptional()
   @IsInt()
   @Min(1)
-  passengerCount: number;
+  passengerCount?: number;
 
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   passengerNames?: string[]; // Array of passenger names
 
+  @IsOptional()
   @IsEnum(ServiceType)
-  serviceType: ServiceType;
+  serviceType?: ServiceType; // 'DROP' | 'PICKUP' | 'BOTH'
 
+  @IsOptional()
   @IsEnum(ResourceMode)
-  resourceMode: ResourceMode;
+  resourceMode?: ResourceMode; // 'INTERNAL' | 'DAILY_RENT' | 'PERSONAL'
 
+  @IsOptional()
   @IsObject()
   @ValidateNested()
   @Type(() => BookingSegmentDto)
-  segment: BookingSegmentDto;
+  segment?: BookingSegmentDto;
 
   @IsOptional()
   @Type(() => Number)
@@ -68,7 +71,11 @@ export class CreateBookingDto {
   vehicleId?: number; // Optional: Preferred vehicle ID (will be validated for availability)
 
   @IsOptional()
+  @IsString()
+  additionalNotes?: string; // Optional - additional notes (stored in purpose field or can be added to schema later)
+
+  @IsOptional()
   @IsBoolean()
   @Type(() => Boolean)
-  isDraft?: boolean; // Default: false (submit). If true, booking will be saved as DRAFT without approval header
+  isDraft?: boolean; // Optional - if true, keeps as DRAFT. If false, submits booking (changes status to SUBMITTED and creates approval header)
 }

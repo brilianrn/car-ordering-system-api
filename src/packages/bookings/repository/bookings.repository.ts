@@ -2,6 +2,7 @@ import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { Injectable } from '@nestjs/common';
 import { Booking, Prisma, PrismaClient } from '@prisma/client';
+import { BASE_BOOKING_INCLUDE } from '../domain/entities';
 import { BookingsRepositoryPort } from '../ports/repository.port';
 
 @Injectable()
@@ -11,7 +12,7 @@ export class BookingsRepository implements BookingsRepositoryPort {
   createWithTransaction = async (data: {
     booking: Prisma.BookingCreateInput;
     segment: Omit<Prisma.BookingSegmentCreateInput, 'booking'>;
-    approvalHeader: Omit<Prisma.ApprovalHeaderCreateInput, 'booking'>;
+    approvalHeader?: Omit<Prisma.ApprovalHeaderCreateInput, 'booking'>; // Optional for draft bookings
   }): Promise<any> => {
     try {
       // Prisma transaction ensures atomicity:
@@ -35,43 +36,26 @@ export class BookingsRepository implements BookingsRepositoryPort {
           },
         });
 
-        // Step 3: Create ApprovalHeader linked to the booking
+        // Step 3: Create ApprovalHeader linked to the booking (only if provided)
+        // For draft bookings, approvalHeader is not created
         // If this fails, transaction rolls back (including Step 1 & 2)
-        await tx.approvalHeader.create({
-          data: {
-            ...data.approvalHeader,
-            booking: {
-              connect: { id: booking.id },
+        if (data.approvalHeader) {
+          await tx.approvalHeader.create({
+            data: {
+              ...data.approvalHeader,
+              booking: {
+                connect: { id: booking.id },
+              },
             },
-          },
-        });
+          });
+        }
 
         // All steps succeeded, return the created booking with relations
         // Transaction will commit automatically after this returns
+        // Use base include to ensure compatibility even if migration hasn't been run yet
         return await tx.booking.findUnique({
           where: { id: booking.id },
-          include: {
-            category: true,
-            segments: true,
-            approvalHeader: {
-              include: {
-                approverL1: {
-                  select: {
-                    employeeId: true,
-                    fullName: true,
-                    email: true,
-                  },
-                },
-              },
-            },
-            requester: {
-              select: {
-                employeeId: true,
-                fullName: true,
-                email: true,
-              },
-            },
-          },
+          include: BASE_BOOKING_INCLUDE as Prisma.BookingInclude,
         });
       });
     } catch (error) {
@@ -152,13 +136,15 @@ export class BookingsRepository implements BookingsRepositoryPort {
 
   findEmployeeById = async (
     employeeId: string,
-  ): Promise<{ employeeId: string; approverL1Id: string | null } | null> => {
+  ): Promise<{ employeeId: string; approverL1Id: string | null; fullName: string; email: string } | null> => {
     try {
       const employee = await this.db.employee.findUnique({
         where: { employeeId },
         select: {
           employeeId: true,
           approverL1Id: true,
+          fullName: true,
+          email: true,
         },
       });
       return employee;
@@ -189,13 +175,15 @@ export class BookingsRepository implements BookingsRepositoryPort {
 
   findEmployeeByEmployeeId = async (
     employeeId: string,
-  ): Promise<{ employeeId: string; approverL1Id: string | null } | null> => {
+  ): Promise<{ employeeId: string; approverL1Id: string | null; fullName: string; email: string } | null> => {
     try {
       const employee = await this.db.employee.findUnique({
         where: { employeeId },
         select: {
           employeeId: true,
           approverL1Id: true,
+          fullName: true,
+          email: true,
         },
       });
       return employee;
@@ -321,7 +309,9 @@ export class BookingsRepository implements BookingsRepositoryPort {
 
       // Get list of vehicle IDs that are already assigned
       const assignedVehicleIds = new Set(
-        conflictingAssignments.map((assignment) => assignment.vehicleChosenId).filter((id): id is number => id !== null),
+        conflictingAssignments
+          .map((assignment) => assignment.vehicleChosenId)
+          .filter((id): id is number => id !== null),
       );
 
       // Filter out vehicles that are already assigned
@@ -352,6 +342,140 @@ export class BookingsRepository implements BookingsRepositoryPort {
         error instanceof Error ? error.message : 'Error in findAvailableVehicles',
         error instanceof Error ? error.stack : undefined,
         'BookingsRepository.findAvailableVehicles',
+      );
+      throw error;
+    }
+  };
+
+  findById = async (id: number, include?: Prisma.BookingInclude): Promise<Booking | null> => {
+    try {
+      if (include) {
+        return await this.db.booking.findUnique({
+          where: { id, deletedAt: null },
+          include,
+        });
+      }
+
+      return await this.db.booking.findUnique({
+        where: { id, deletedAt: null },
+        include: BASE_BOOKING_INCLUDE as Prisma.BookingInclude,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findById',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsRepository.findById',
+      );
+      throw error;
+    }
+  };
+
+  update = async (id: number, data: Prisma.BookingUpdateInput): Promise<Booking> => {
+    try {
+      return await this.db.booking.update({
+        where: { id },
+        data,
+        include: {
+          category: true,
+          segments: true,
+          approvalHeader: {
+            include: {
+              approverL1: {
+                select: {
+                  employeeId: true,
+                  fullName: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          requester: {
+            select: {
+              employeeId: true,
+              fullName: true,
+              email: true,
+            },
+          },
+        },
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in update',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsRepository.update',
+      );
+      throw error;
+    }
+  };
+
+  updateSegment = async (bookingId: number, data: Prisma.BookingSegmentUpdateInput): Promise<void> => {
+    try {
+      // Find the first segment for this booking (segmentNo: 1)
+      const segment = await this.db.bookingSegment.findFirst({
+        where: { bookingId, segmentNo: 1 },
+      });
+
+      if (segment) {
+        await this.db.bookingSegment.update({
+          where: { id: segment.id },
+          data,
+        });
+      } else {
+        // If segment doesn't exist, create it
+        // Exclude booking and segmentNo from data to avoid conflicts
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { booking, segmentNo, ...restData } = data as Prisma.BookingSegmentCreateInput & {
+          booking?: unknown;
+          segmentNo?: unknown;
+        };
+        await this.db.bookingSegment.create({
+          data: {
+            booking: { connect: { id: bookingId } },
+            segmentNo: 1,
+            ...restData,
+          },
+        });
+      }
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in updateSegment',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsRepository.updateSegment',
+      );
+      throw error;
+    }
+  };
+
+  findApprovalHeaderByBookingId = async (bookingId: number): Promise<{ id: number; bookingId: number } | null> => {
+    try {
+      const approvalHeader = await this.db.approvalHeader.findUnique({
+        where: { bookingId },
+        select: {
+          id: true,
+          bookingId: true,
+        },
+      });
+      return approvalHeader;
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findApprovalHeaderByBookingId',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsRepository.findApprovalHeaderByBookingId',
+      );
+      throw error;
+    }
+  };
+
+  createApprovalHeader = async (data: Prisma.ApprovalHeaderCreateInput): Promise<void> => {
+    try {
+      await this.db.approvalHeader.create({
+        data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in createApprovalHeader',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsRepository.createApprovalHeader',
       );
       throw error;
     }

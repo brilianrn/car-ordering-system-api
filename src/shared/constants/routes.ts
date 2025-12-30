@@ -53,5 +53,7 @@ export const uploadRoute = {
 export const bookingRoute = {
   list: '',
   create: '',
+  update: '/:id',
+  findOne: '/:id',
   lovAvailableVehicles: '/lov/available-vehicles',
 };

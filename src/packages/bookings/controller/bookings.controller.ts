@@ -1,11 +1,25 @@
-import { ERoutes, validationMessage, bookingRoute } from '@/shared/constants';
+import { bookingRoute, ERoutes, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
-import { Body, Controller, Get, Headers, HttpStatus, Inject, Post, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpStatus,
+  Inject,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { CreateBookingDto } from '../dto/create-booking.dto';
 import { QueryAvailableVehiclesDto } from '../dto/query-available-vehicles.dto';
 import { QueryBookingDto } from '../dto/query-booking.dto';
+import { UpdateBookingDto } from '../dto/update-booking.dto';
 import { BookingsControllerPort } from '../ports/controller.port';
 import { BookingsUsecasePort } from '../ports/usecase.port';
 
@@ -111,6 +125,92 @@ export class BookingsController implements BookingsControllerPort {
       );
       return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
         message: error?.message || validationMessage()[500](),
+      });
+    }
+  }
+
+  @Patch(bookingRoute.update)
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateDto: UpdateBookingDto,
+    @Headers('x-user-id') userId: string,
+    @Res() res: Response,
+  ) {
+    try {
+      // Use userId as requesterId (currently logged-in user)
+      const requesterId = userId;
+
+      if (!requesterId) {
+        return response[HttpStatus.BAD_REQUEST](res, {
+          message: 'User ID is required',
+        });
+      }
+
+      const result = await this.usecase.update(id, updateDto, requesterId, userId);
+
+      if (result?.error) {
+        const statusCode =
+          result.error.code === 404
+            ? HttpStatus.NOT_FOUND
+            : result.error.code === 403
+              ? HttpStatus.FORBIDDEN
+              : HttpStatus.BAD_REQUEST;
+        return response[statusCode](res, {
+          message: result?.error?.message || validationMessage()[500](),
+        });
+      }
+      return response[HttpStatus.OK](res, {
+        message: validationMessage('Booking')[200](),
+        data: result?.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in update',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsController.update',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: error?.message || validationMessage()[500](),
+      });
+    }
+  }
+
+  @Get(bookingRoute.findOne)
+  async findOne(@Param('id', ParseIntPipe) id: number, @Headers('x-user-id') userId: string, @Res() res: Response) {
+    try {
+      const requesterId = userId; // Use userId as requesterId for ownership validation
+
+      if (!requesterId) {
+        return response[HttpStatus.BAD_REQUEST](res, {
+          message: 'User ID is required',
+        });
+      }
+
+      const result = await this.usecase.findOne(id, requesterId);
+
+      if (result?.error) {
+        const statusCode =
+          result.error.code === 404
+            ? HttpStatus.NOT_FOUND
+            : result.error.code === 403
+              ? HttpStatus.FORBIDDEN
+              : HttpStatus.BAD_REQUEST;
+        return response[statusCode](res, {
+          message: result?.error?.message || validationMessage()[500](),
+        });
+      }
+      return response[HttpStatus.OK](res, {
+        message: validationMessage('Booking')[200](),
+        data: result?.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findOne',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsController.findOne',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: (error instanceof Error ? error.message : undefined) || validationMessage()[500](),
       });
     }
   }

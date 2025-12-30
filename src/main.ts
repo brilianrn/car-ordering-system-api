@@ -12,13 +12,15 @@ async function bootstrap() {
   const mode = process.env.MODE;
 
   console.log(`🚀 COS Backend starting in MODE = ${mode?.toUpperCase()}`);
-  console.log(process.env.DATABASE_URL, 'DATABASE_URL DATABASE_URL');
 
   switch (mode) {
     case 'API': {
+      console.log('🚀 Creating NestJS application...');
       const app = await NestFactory.create(AppModule, {
         bufferLogs: true,
       });
+      console.log('✅ NestJS application created');
+
       app.get(ConfigService);
       app.enableCors();
 
@@ -51,6 +53,7 @@ async function bootstrap() {
         });
       });
 
+      console.log(`🚀 Starting server on port ${port}...`);
       await app.listen(port);
       console.log(`🌐 API server running on port: ${port}`);
       break;

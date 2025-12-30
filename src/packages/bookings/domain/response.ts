@@ -1,28 +1,39 @@
-import { ApprovalHeader, Booking, BookingSegment, Category } from '@prisma/client';
+/**
+ * Booking Domain Response Types
+ * Response interfaces for API endpoints
+ */
 
-export interface IBookingSegment extends BookingSegment {}
+import { IBookingWithPresignedUrls } from './entities';
+import {
+  IBookingCategory as BookingCategoryEntity,
+  IBookingSegment as BookingSegmentEntity,
+  IApprovalHeaderWithApprover,
+} from './entities/booking.entity';
 
-export interface IBookingCategory extends Category {}
+/**
+ * Booking Response Interface
+ * Used for API responses (with presigned URLs for vehicle images)
+ */
+export type IBooking = IBookingWithPresignedUrls;
 
-export interface IApprovalHeader extends ApprovalHeader {
-  approverL1?: {
-    employeeId: string;
-    fullName: string;
-    email: string;
-  } | null;
-}
+/**
+ * Booking Category (for backward compatibility)
+ */
+export type IBookingCategory = BookingCategoryEntity;
 
-export interface IBooking extends Booking {
-  category?: IBookingCategory | null;
-  segments?: IBookingSegment[];
-  approvalHeader?: IApprovalHeader | null;
-  requester?: {
-    employeeId: string;
-    fullName: string;
-    email: string;
-  } | null;
-}
+/**
+ * Booking Segment (for backward compatibility)
+ */
+export type IBookingSegment = BookingSegmentEntity;
 
+/**
+ * Approval Header (for backward compatibility)
+ */
+export type IApprovalHeader = IApprovalHeaderWithApprover;
+
+/**
+ * Booking List Response
+ */
 export interface IBookingListResponse {
   data: IBooking[];
   meta: {
@@ -32,6 +43,10 @@ export interface IBookingListResponse {
   };
 }
 
+/**
+ * Available Vehicle Response
+ * Used for LOV (List of Values) endpoint
+ */
 export interface IAvailableVehicle {
   id: number;
   vehicleCode: string;

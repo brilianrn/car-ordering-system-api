@@ -16,4 +16,3 @@ export class QueryAvailableVehiclesDto {
   @Min(1)
   orgUnitId?: number; // Filter vehicles available for this organization (dedicated + pool)
 }
-

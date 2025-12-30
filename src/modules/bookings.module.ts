@@ -1,10 +1,12 @@
 import { BookingsController } from '@/packages/bookings/controller/bookings.controller';
 import { BookingsRepository } from '@/packages/bookings/repository/bookings.repository';
 import { BookingsUseCase } from '@/packages/bookings/usecase/bookings.usecase';
-import { S3Service } from '@/shared/utils';
+import { NotificationService, S3Service } from '@/shared/utils';
 import { Module } from '@nestjs/common';
+import { RabbitMQModule } from './rabbitmq.module';
 
 @Module({
+  imports: [RabbitMQModule],
   controllers: [BookingsController],
   providers: [
     {
@@ -16,6 +18,7 @@ import { Module } from '@nestjs/common';
       useClass: BookingsUseCase,
     },
     S3Service,
+    NotificationService,
   ],
   exports: ['BookingsUsecasePort', 'BookingsRepositoryPort'],
 })

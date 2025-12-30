@@ -1,0 +1,231 @@
+import { Injectable } from '@nestjs/common';
+import { clientDb } from '@/shared/utils';
+import { globalLogger as Logger } from '@/shared/utils/logger';
+import { BookingStatus, Prisma } from '@prisma/client';
+import { CarpoolConfigService, CarpoolConfig } from './carpool-config.service';
+import { ICarpoolCandidate } from '../domain/response';
+
+@Injectable()
+export class CarpoolCandidateMatcherService {
+  private readonly db = clientDb;
+
+  constructor(private readonly configService: CarpoolConfigService) {}
+
+  /**
+   * Find carpool candidates for a host booking
+   */
+  async findCandidates(hostBookingId: number): Promise<ICarpoolCandidate[]> {
+    try {
+      // Get host booking with relations
+      const hostBooking = await this.db.booking.findUnique({
+        where: { id: hostBookingId },
+        include: {
+          segments: {
+            where: { deletedAt: null },
+            orderBy: { segmentNo: 'asc' },
+          },
+          requester: {
+            select: {
+              employeeId: true,
+              fullName: true,
+            },
+          },
+        },
+      });
+
+      if (!hostBooking) {
+        throw new Error(`Host booking with ID ${hostBookingId} not found`);
+      }
+
+      if (hostBooking.bookingStatus === BookingStatus.MERGED) {
+        throw new Error('Host booking is already merged');
+      }
+
+      // Get configuration
+      const config = await this.configService.getConfig();
+
+      // Get host segment (first segment)
+      const hostSegment = hostBooking.segments[0];
+      if (!hostSegment) {
+        throw new Error('Host booking has no segments');
+      }
+
+      // Find candidate bookings
+      const candidates = await this.findCandidateBookings(hostBooking, config);
+
+      // Filter and score candidates
+      const scoredCandidates = await Promise.all(
+        candidates.map(async (candidate) => {
+          const candidateSegment = candidate.segments[0];
+          if (!candidateSegment) return null;
+
+          // Calculate time difference
+          const timeDiff = Math.abs((candidate.startAt.getTime() - hostBooking.startAt.getTime()) / (1000 * 60));
+
+          // Calculate route similarity
+          const routeSimilarity = this.calculateRouteSimilarity(
+            hostSegment.from,
+            hostSegment.to,
+            candidateSegment.from,
+            candidateSegment.to,
+          );
+
+          // Calculate total passengers
+          const totalPassengers = hostBooking.passengerCount + candidate.passengerCount;
+
+          // Check if can fit (assuming max vehicle capacity from config)
+          const canFit = totalPassengers <= config.maxVehicleSeatCapacity;
+
+          return {
+            bookingId: candidate.id,
+            bookingNumber: candidate.bookingNumber,
+            requesterId: candidate.requesterId,
+            requesterName: candidate.requester.fullName,
+            startAt: candidate.startAt,
+            endAt: candidate.endAt,
+            passengerCount: candidate.passengerCount,
+            from: candidateSegment.from,
+            to: candidateSegment.to,
+            routeSimilarity,
+            timeDifference: timeDiff,
+            totalPassengers,
+            canFit,
+          } as ICarpoolCandidate;
+        }),
+      );
+
+      // Filter valid candidates
+      const validCandidates = scoredCandidates.filter(
+        (candidate): candidate is ICarpoolCandidate =>
+          candidate !== null &&
+          candidate.timeDifference <= config.timeWindowMinutes &&
+          candidate.routeSimilarity >= config.routeSimilarityThreshold &&
+          candidate.canFit,
+      );
+
+      // Sort by route similarity (descending), then by time difference (ascending)
+      validCandidates.sort((a, b) => {
+        if (b.routeSimilarity !== a.routeSimilarity) {
+          return b.routeSimilarity - a.routeSimilarity;
+        }
+        return a.timeDifference - b.timeDifference;
+      });
+
+      return validCandidates;
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error finding carpool candidates',
+        error instanceof Error ? error.stack : undefined,
+        'CarpoolCandidateMatcherService.findCandidates',
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Find candidate bookings from database
+   */
+  private async findCandidateBookings(hostBooking: any, config: CarpoolConfig) {
+    const timeWindowMs = config.timeWindowMinutes * 60 * 1000;
+    const startWindow = new Date(hostBooking.startAt.getTime() - timeWindowMs);
+    const endWindow = new Date(hostBooking.startAt.getTime() + timeWindowMs);
+
+    return await this.db.booking.findMany({
+      where: {
+        id: { not: hostBooking.id },
+        bookingStatus: {
+          in: [BookingStatus.DRAFT, BookingStatus.SUBMITTED, BookingStatus.APPROVED_L1],
+        },
+        startAt: {
+          gte: startWindow,
+          lte: endWindow,
+        },
+        carpoolGroupId: null, // Not already in a carpool
+        deletedAt: null,
+      },
+      include: {
+        segments: {
+          where: { deletedAt: null },
+          orderBy: { segmentNo: 'asc' },
+        },
+        requester: {
+          select: {
+            employeeId: true,
+            fullName: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Calculate route similarity between two routes
+   * Simple implementation: checks if origin/destination are similar
+   * In production, this could use geocoding API or distance calculation
+   */
+  private calculateRouteSimilarity(
+    hostFrom: string,
+    hostTo: string,
+    candidateFrom: string,
+    candidateTo: string,
+  ): number {
+    // Normalize strings for comparison
+    const normalize = (str: string) => str.toLowerCase().trim().replace(/\s+/g, ' ');
+
+    const hostFromNorm = normalize(hostFrom);
+    const hostToNorm = normalize(hostTo);
+    const candidateFromNorm = normalize(candidateFrom);
+    const candidateToNorm = normalize(candidateTo);
+
+    // Check exact matches
+    if (hostFromNorm === candidateFromNorm && hostToNorm === candidateToNorm) {
+      return 100;
+    }
+
+    // Check if one route contains the other
+    if (
+      (hostFromNorm.includes(candidateFromNorm) || candidateFromNorm.includes(hostFromNorm)) &&
+      (hostToNorm.includes(candidateToNorm) || candidateToNorm.includes(hostToNorm))
+    ) {
+      return 85;
+    }
+
+    // Check if destinations match (different origins)
+    if (hostToNorm === candidateToNorm) {
+      return 70;
+    }
+
+    // Check if origins match (different destinations)
+    if (hostFromNorm === candidateFromNorm) {
+      return 60;
+    }
+
+    // Check for partial matches using word similarity
+    const hostFromWords = hostFromNorm.split(' ');
+    const hostToWords = hostToNorm.split(' ');
+    const candidateFromWords = candidateFromNorm.split(' ');
+    const candidateToWords = candidateToNorm.split(' ');
+
+    let similarity = 0;
+    let matches = 0;
+    let totalWords = hostFromWords.length + hostToWords.length;
+
+    // Check origin words
+    for (const word of hostFromWords) {
+      if (candidateFromWords.includes(word) || candidateToWords.includes(word)) {
+        matches++;
+      }
+    }
+
+    // Check destination words
+    for (const word of hostToWords) {
+      if (candidateToWords.includes(word) || candidateFromWords.includes(word)) {
+        matches++;
+      }
+    }
+
+    similarity = (matches / totalWords) * 100;
+
+    return Math.min(100, Math.max(0, similarity));
+  }
+}
