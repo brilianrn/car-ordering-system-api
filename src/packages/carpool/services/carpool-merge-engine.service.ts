@@ -346,27 +346,19 @@ export class CarpoolMergeEngineService {
 
     try {
       // Try to calculate route using geospatial service
-      // Build waypoints array from locations
-      const locations: Array<{ lat: number; lng: number } | string> = [];
+      // For now, calculate distance between first and last waypoint
+      // In production, you might want to calculate cumulative distance for all segments
+      const firstWaypoint = waypoints[0];
+      const lastWaypoint = waypoints[waypoints.length - 1];
 
-      for (const waypoint of waypoints) {
-        // Try to get coordinates from segment if available
-        // For now, use location string and let geospatial service geocode
-        locations.push(waypoint.location);
-      }
+      // Assume location format is "lat,lng" or address string
+      // For address strings, this will fall back to Haversine estimation
+      const route = await this.geospatialService.calculateRouteFromCoordinates(
+        firstWaypoint.location,
+        lastWaypoint.location,
+      );
 
-      // Calculate route from first to last waypoint with intermediate waypoints
-      if (locations.length >= 2) {
-        const origin = locations[0];
-        const destination = locations[locations.length - 1];
-        const intermediateWaypoints = locations.slice(1, -1);
-
-        const route = await this.geospatialService.calculateRoute(
-          origin,
-          destination,
-          intermediateWaypoints.length > 0 ? intermediateWaypoints : undefined,
-        );
-
+      if (route && route.distance > 0) {
         return route.distance;
       }
     } catch (error) {
