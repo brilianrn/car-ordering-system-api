@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { GeospatialService } from '@/shared/services/geospatial.service';
 import { CarpoolController } from './controller/carpool.controller';
 import { CarpoolUseCase } from './usecase/carpool.usecase';
 import { CarpoolRepository } from './repository/carpool.repository';
@@ -18,6 +19,7 @@ import { CarpoolConfigService } from './services/carpool-config.service';
     CarpoolCostAllocatorService,
     CarpoolAuditService,
     CarpoolConfigService,
+    GeospatialService,
   ],
   exports: [CarpoolUseCase],
 })

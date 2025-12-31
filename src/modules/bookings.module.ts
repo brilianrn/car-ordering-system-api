@@ -1,6 +1,7 @@
 import { BookingsController } from '@/packages/bookings/controller/bookings.controller';
 import { BookingsRepository } from '@/packages/bookings/repository/bookings.repository';
 import { BookingsUseCase } from '@/packages/bookings/usecase/bookings.usecase';
+import { GeospatialService } from '@/shared/services/geospatial.service';
 import { NotificationService, S3Service } from '@/shared/utils';
 import { Module } from '@nestjs/common';
 import { RabbitMQModule } from './rabbitmq.module';
@@ -19,6 +20,7 @@ import { RabbitMQModule } from './rabbitmq.module';
     },
     S3Service,
     NotificationService,
+    GeospatialService,
   ],
   exports: ['BookingsUsecasePort', 'BookingsRepositoryPort'],
 })

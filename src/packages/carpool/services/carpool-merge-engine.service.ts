@@ -1,5 +1,6 @@
 import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
+import { GeospatialService } from '@/shared/services/geospatial.service';
 import { Injectable } from '@nestjs/common';
 import { BookingStatus, Prisma } from '@prisma/client';
 import { ICombinedRoute } from '../domain/response';
@@ -13,6 +14,7 @@ export class CarpoolMergeEngineService {
   constructor(
     private readonly configService: CarpoolConfigService,
     private readonly auditService: CarpoolAuditService,
+    private readonly geospatialService: GeospatialService,
   ) {}
 
   /**
@@ -138,8 +140,27 @@ export class CarpoolMergeEngineService {
         throw new Error('Carpool group not found');
       }
 
+      // Calculate pre-merge distance (sum of individual booking distances)
+      const preMergeDistance = this.calculatePreMergeDistance(carpoolGroup);
+
       // Calculate combined route
       const combinedRoute = await this.calculateCombinedRoute(carpoolGroup);
+
+      // Calculate post-merge distance and detour percentage
+      const postMergeDistance = combinedRoute.totalDistance;
+      const hostOriginalDistance = carpoolGroup.hostBooking.segments[0]?.estKm || 0;
+      const detourPercentage =
+        hostOriginalDistance > 0 ? ((postMergeDistance - hostOriginalDistance) / hostOriginalDistance) * 100 : 0;
+
+      // Validate detour percentage against config
+      const config = await this.configService.getConfig();
+      if (detourPercentage > config.maxDetourPercentage) {
+        Logger.warn(
+          `Detour percentage (${detourPercentage.toFixed(2)}%) exceeds maximum allowed (${config.maxDetourPercentage}%)`,
+          'CarpoolMergeEngineService.mergeCarpool',
+        );
+        // Soft block: allow merge but log warning (GA can override)
+      }
 
       // Use transaction to ensure atomicity
       return await this.db.$transaction(async (tx) => {
@@ -164,7 +185,7 @@ export class CarpoolMergeEngineService {
           });
         }
 
-        // Update carpool group with combined route
+        // Update carpool group with combined route and metrics
         const combinedRouteForDb = {
           ...combinedRoute,
           waypoints: combinedRoute.waypoints.map((waypoint) => ({
@@ -177,12 +198,15 @@ export class CarpoolMergeEngineService {
           where: { id: carpoolGroupId },
           data: {
             combinedRoute: combinedRouteForDb as Prisma.InputJsonValue,
+            preMergeDistance,
+            postMergeDistance,
+            detourPercentage: Math.max(0, detourPercentage),
             status: 'Merged',
             updatedBy: userId,
           },
         });
 
-        // Log merge action
+        // Log merge action with geospatial metrics
         await this.auditService.logAction({
           carpoolGroupId,
           hostBookingId: carpoolGroup.hostBookingId,
@@ -191,6 +215,9 @@ export class CarpoolMergeEngineService {
           newValue: {
             combinedRoute,
             mergedBookings: carpoolGroup.invites.map((inv) => inv.joinerBookingId),
+            preMergeDistance,
+            postMergeDistance,
+            detourPercentage: Math.max(0, detourPercentage),
           },
         });
 
@@ -208,6 +235,7 @@ export class CarpoolMergeEngineService {
 
   /**
    * Calculate combined route from carpool group
+   * Uses GeospatialService for accurate route calculation
    */
   private async calculateCombinedRoute(carpoolGroup: any): Promise<ICombinedRoute> {
     const waypoints: ICombinedRoute['waypoints'] = [];
@@ -295,29 +323,82 @@ export class CarpoolMergeEngineService {
       }
     }
 
-    // Calculate total distance and duration (simplified - in production use routing API)
-    const totalDistance = this.estimateTotalDistance(waypoints);
+    // Calculate total distance and duration using GeospatialService
+    const totalDistance = await this.calculateTotalDistance(waypoints);
     const totalDuration = this.estimateTotalDuration(waypoints);
-
-    // Calculate detour percentage (simplified)
-    const originalDistance = this.estimateOriginalDistance(carpoolGroup);
-    const detourPercentage = originalDistance > 0 ? ((totalDistance - originalDistance) / originalDistance) * 100 : 0;
 
     return {
       waypoints,
       totalDistance,
       totalDuration,
-      detourPercentage: Math.max(0, detourPercentage),
+      detourPercentage: 0, // Will be calculated in mergeCarpool method
     };
   }
 
   /**
-   * Estimate total distance (simplified - in production use geocoding/routing API)
+   * Calculate total distance using GeospatialService
+   * Uses route calculation if coordinates are available, otherwise falls back to estimation
    */
-  private estimateTotalDistance(waypoints: ICombinedRoute['waypoints']): number {
-    // Simplified: assume average 10km between waypoints
-    // In production, use Google Maps API or similar
-    return waypoints.length * 10;
+  private async calculateTotalDistance(waypoints: ICombinedRoute['waypoints']): Promise<number> {
+    if (waypoints.length < 2) {
+      return 0;
+    }
+
+    try {
+      // Try to calculate route using geospatial service
+      // Build waypoints array from locations
+      const locations: Array<{ lat: number; lng: number } | string> = [];
+
+      for (const waypoint of waypoints) {
+        // Try to get coordinates from segment if available
+        // For now, use location string and let geospatial service geocode
+        locations.push(waypoint.location);
+      }
+
+      // Calculate route from first to last waypoint with intermediate waypoints
+      if (locations.length >= 2) {
+        const origin = locations[0];
+        const destination = locations[locations.length - 1];
+        const intermediateWaypoints = locations.slice(1, -1);
+
+        const route = await this.geospatialService.calculateRoute(
+          origin,
+          destination,
+          intermediateWaypoints.length > 0 ? intermediateWaypoints : undefined,
+        );
+
+        return route.distance;
+      }
+    } catch (error) {
+      Logger.warn(
+        `Failed to calculate route using GeospatialService, falling back to estimation: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'CarpoolMergeEngineService.calculateTotalDistance',
+      );
+    }
+
+    // Fallback: estimate based on waypoint count
+    return waypoints.length * 10; // Rough estimate: 10km per waypoint
+  }
+
+  /**
+   * Calculate pre-merge distance (sum of individual booking distances)
+   */
+  private calculatePreMergeDistance(carpoolGroup: any): number {
+    let total = 0;
+
+    // Add host booking distance
+    if (carpoolGroup.hostBooking.segments[0]?.estKm) {
+      total += carpoolGroup.hostBooking.segments[0].estKm;
+    }
+
+    // Add joiner booking distances
+    for (const invite of carpoolGroup.invites) {
+      if (invite.joinerBooking.segments[0]?.estKm) {
+        total += invite.joinerBooking.segments[0].estKm;
+      }
+    }
+
+    return total;
   }
 
   /**
@@ -328,21 +409,5 @@ export class CarpoolMergeEngineService {
     const first = waypoints[0].estimatedTime;
     const last = waypoints[waypoints.length - 1].estimatedTime;
     return (last.getTime() - first.getTime()) / (1000 * 60); // minutes
-  }
-
-  /**
-   * Estimate original distance before merge
-   */
-  private estimateOriginalDistance(carpoolGroup: any): number {
-    let total = 0;
-    if (carpoolGroup.hostBooking.segments[0]?.estKm) {
-      total += carpoolGroup.hostBooking.segments[0].estKm;
-    }
-    for (const invite of carpoolGroup.invites) {
-      if (invite.joinerBooking.segments[0]?.estKm) {
-        total += invite.joinerBooking.segments[0].estKm;
-      }
-    }
-    return total || 20; // Default fallback
   }
 }

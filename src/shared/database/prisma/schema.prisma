@@ -229,21 +229,24 @@ model Booking {
 }
 
 model CarpoolGroup {
-  id             Int             @id @default(autoincrement())
-  hostBookingId  Int             @unique @map("host_booking_id")
-  status         String          @default("Active") @map("status")
-  combinedRoute  Json?           @map("combined_route")
-  sharedCost     Json?           @map("shared_cost")
-  costMode       String?         @map("cost_mode") // EQUAL, PROPORTIONAL_DISTANCE
-  createdAt      DateTime        @default(now()) @map("created_at")
-  createdBy      String          @map("created_by")
-  updatedAt      DateTime        @updatedAt @map("updated_at")
-  updatedBy      String?         @map("updated_by")
-  deletedAt      DateTime?       @map("deleted_at")
-  deletedBy      String?         @map("deleted_by")
-  memberBookings Booking[]       @relation("CarpoolMembers")
-  hostBooking    Booking         @relation("CarpoolHost", fields: [hostBookingId], references: [id])
-  invites        CarpoolInvite[]
+  id                Int             @id @default(autoincrement())
+  hostBookingId     Int             @unique @map("host_booking_id")
+  status            String          @default("Active") @map("status")
+  combinedRoute     Json?           @map("combined_route")
+  sharedCost        Json?           @map("shared_cost")
+  costMode          String?         @map("cost_mode") // EQUAL, PROPORTIONAL_DISTANCE
+  preMergeDistance  Float?          @map("pre_merge_distance") // Total distance before merge (km)
+  postMergeDistance Float?          @map("post_merge_distance") // Total distance after merge (km)
+  detourPercentage  Float?          @map("detour_percentage") // Detour percentage for host route
+  createdAt         DateTime        @default(now()) @map("created_at")
+  createdBy         String          @map("created_by")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  updatedBy         String?         @map("updated_by")
+  deletedAt         DateTime?       @map("deleted_at")
+  deletedBy         String?         @map("deleted_by")
+  memberBookings    Booking[]       @relation("CarpoolMembers")
+  hostBooking       Booking         @relation("CarpoolHost", fields: [hostBookingId], references: [id])
+  invites           CarpoolInvite[]
 
   @@map("carpool_group")
 }
@@ -337,22 +340,28 @@ model Assignment {
 }
 
 model BookingSegment {
-  id          Int               @id @default(autoincrement())
-  bookingId   Int               @map("booking_id")
-  segmentNo   Int               @map("segment_no")
-  type        String            @map("type")
-  from        String            @map("from")
-  to          String            @map("to")
-  estKm       Float?            @map("est_km")
-  createdAt   DateTime          @default(now()) @map("created_at")
-  createdBy   String            @map("created_by")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
-  updatedBy   String?           @map("updated_by")
-  deletedAt   DateTime?         @map("deleted_at")
-  deletedBy   String?           @map("deleted_by")
-  booking     Booking           @relation(fields: [bookingId], references: [id])
-  execution   SegmentExecution?
-  travelOrder SuratJalan?
+  id                 Int               @id @default(autoincrement())
+  bookingId          Int               @map("booking_id")
+  segmentNo          Int               @map("segment_no")
+  type               String            @map("type")
+  from               String            @map("from")
+  to                 String            @map("to")
+  estKm              Float?            @map("est_km")
+  originLatLong      String?           @map("origin_lat_long") // Format: "lat,lng" (e.g., "-6.2088,106.8456")
+  destinationLatLong String?           @map("destination_lat_long") // Format: "lat,lng"
+  routePolyline      String?           @map("route_polyline") // Encoded polyline string from Maps API
+  routeGeohash       String?           @map("route_geohash") // Alternative: Geohash representation
+  geocodeAccuracy    Float?            @map("geocode_accuracy") // Accuracy score (0-100)
+  geocodeValidated   Boolean           @default(false) @map("geocode_validated") // Flag if geocoding was successful
+  createdAt          DateTime          @default(now()) @map("created_at")
+  createdBy          String            @map("created_by")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  updatedBy          String?           @map("updated_by")
+  deletedAt          DateTime?         @map("deleted_at")
+  deletedBy          String?           @map("deleted_by")
+  booking            Booking           @relation(fields: [bookingId], references: [id])
+  execution          SegmentExecution?
+  travelOrder        SuratJalan?
 
   @@unique([bookingId, segmentNo])
   @@map("booking_segment")

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
+import { GeospatialService } from '@/shared/services/geospatial.service';
 import { BookingStatus, Prisma } from '@prisma/client';
 import { CarpoolConfigService, CarpoolConfig } from './carpool-config.service';
 import { ICarpoolCandidate } from '../domain/response';
@@ -9,7 +10,10 @@ import { ICarpoolCandidate } from '../domain/response';
 export class CarpoolCandidateMatcherService {
   private readonly db = clientDb;
 
-  constructor(private readonly configService: CarpoolConfigService) {}
+  constructor(
+    private readonly configService: CarpoolConfigService,
+    private readonly geospatialService: GeospatialService,
+  ) {}
 
   /**
    * Find carpool candidates for a host booking
@@ -62,13 +66,8 @@ export class CarpoolCandidateMatcherService {
           // Calculate time difference
           const timeDiff = Math.abs((candidate.startAt.getTime() - hostBooking.startAt.getTime()) / (1000 * 60));
 
-          // Calculate route similarity
-          const routeSimilarity = this.calculateRouteSimilarity(
-            hostSegment.from,
-            hostSegment.to,
-            candidateSegment.from,
-            candidateSegment.to,
-          );
+          // Calculate route similarity using polyline if available, otherwise fallback to string matching
+          const routeSimilarity = await this.calculateRouteSimilarity(hostSegment, candidateSegment);
 
           // Calculate total passengers
           const totalPassengers = hostBooking.passengerCount + candidate.passengerCount;
@@ -160,10 +159,44 @@ export class CarpoolCandidateMatcherService {
 
   /**
    * Calculate route similarity between two routes
-   * Simple implementation: checks if origin/destination are similar
-   * In production, this could use geocoding API or distance calculation
+   * Uses polyline similarity if available, otherwise falls back to string matching
    */
-  private calculateRouteSimilarity(
+  private async calculateRouteSimilarity(hostSegment: any, candidateSegment: any): Promise<number> {
+    // If both segments have polylines and are validated, use polyline similarity
+    if (
+      hostSegment.routePolyline &&
+      candidateSegment.routePolyline &&
+      hostSegment.geocodeValidated &&
+      candidateSegment.geocodeValidated
+    ) {
+      try {
+        const similarity = await this.geospatialService.calculateRouteSimilarity(
+          hostSegment.routePolyline,
+          candidateSegment.routePolyline,
+        );
+        return similarity;
+      } catch (error) {
+        Logger.warn(
+          `Failed to calculate polyline similarity, falling back to string matching: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          'CarpoolCandidateMatcherService.calculateRouteSimilarity',
+        );
+        // Fall through to string matching
+      }
+    }
+
+    // Fallback to string-based similarity
+    return this.calculateStringRouteSimilarity(
+      hostSegment.from,
+      hostSegment.to,
+      candidateSegment.from,
+      candidateSegment.to,
+    );
+  }
+
+  /**
+   * Calculate route similarity using string matching (fallback method)
+   */
+  private calculateStringRouteSimilarity(
     hostFrom: string,
     hostTo: string,
     candidateFrom: string,

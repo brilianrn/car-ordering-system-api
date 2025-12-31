@@ -101,19 +101,37 @@ export class CarpoolCostAllocatorService {
 
   /**
    * Recalculate total cost based on combined route
+   * Uses postMergeDistance from CarpoolGroup if available
    */
   private async recalculateTotalCost(carpoolGroup: any): Promise<number> {
-    // Get combined route from carpoolGroup data
-    const combinedRoute = carpoolGroup.combinedRoute as any;
-    if (!combinedRoute || !combinedRoute.totalDistance) {
-      // Fallback: sum individual booking costs
-      return this.sumIndividualCosts(carpoolGroup);
+    // Priority 1: Use postMergeDistance from CarpoolGroup (most accurate)
+    if (carpoolGroup.postMergeDistance && carpoolGroup.postMergeDistance > 0) {
+      const totalDistance = carpoolGroup.postMergeDistance; // km
+      const combinedRoute = carpoolGroup.combinedRoute as any;
+      const totalDuration = combinedRoute?.totalDuration || 60; // minutes
+
+      return this.calculateCostFromDistance(totalDistance, totalDuration);
     }
 
-    const totalDistance = combinedRoute.totalDistance; // km
-    const totalDuration = combinedRoute.totalDuration || 60; // minutes
+    // Priority 2: Use combinedRoute.totalDistance
+    const combinedRoute = carpoolGroup.combinedRoute as any;
+    if (combinedRoute && combinedRoute.totalDistance) {
+      const totalDistance = combinedRoute.totalDistance; // km
+      const totalDuration = combinedRoute.totalDuration || 60; // minutes
 
-    // Cost calculation (simplified - in production use actual pricing rules)
+      return this.calculateCostFromDistance(totalDistance, totalDuration);
+    }
+
+    // Fallback: sum individual booking costs
+    return this.sumIndividualCosts(carpoolGroup);
+  }
+
+  /**
+   * Calculate cost from distance and duration
+   * In production, this should use CostSet from ParamSet (FR-SET-008)
+   */
+  private calculateCostFromDistance(totalDistance: number, totalDuration: number): number {
+    // Cost calculation (simplified - in production use actual pricing rules from CostSet)
     // Base cost: Rp 5,000 per km
     // Fuel cost: Rp 10,000 per liter (assuming 10 km/liter)
     // Toll cost: Rp 2,000 per km (if applicable)

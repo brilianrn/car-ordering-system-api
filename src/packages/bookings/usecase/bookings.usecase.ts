@@ -1,4 +1,5 @@
-import { S3Service } from '@/shared/utils';
+import { GeospatialService } from '@/shared/services/geospatial.service';
+import { clientDb, S3Service } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { NotificationService } from '@/shared/utils/notification.service';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
@@ -16,11 +17,14 @@ import { BookingsUsecasePort } from '../ports/usecase.port';
 
 @Injectable()
 export class BookingsUseCase implements BookingsUsecasePort {
+  private readonly db = clientDb;
+
   constructor(
     @Inject('BookingsRepositoryPort')
     private readonly repository: BookingsRepositoryPort,
     private readonly s3Service: S3Service,
     private readonly notificationService: NotificationService,
+    private readonly geospatialService: GeospatialService,
   ) {
     this.repository = repository;
   }
@@ -134,7 +138,10 @@ export class BookingsUseCase implements BookingsUsecasePort {
         }),
       };
 
-      // Prepare segment data (booking will be connected in repository)
+      // ============================================
+      // SEGMENT DATA PREPARATION
+      // FE already sends lat/lng, so we just save it
+      // ============================================
       const segmentData: Omit<Prisma.BookingSegmentCreateInput, 'booking'> = {
         segmentNo: 1,
         type:
@@ -145,8 +152,33 @@ export class BookingsUseCase implements BookingsUsecasePort {
               : 'BOTH',
         from: createDto.segment.from,
         to: createDto.segment.to,
+        originLatLong: createDto.segment.originLatLong,
+        destinationLatLong: createDto.segment.destinationLatLong,
+        geocodeValidated: true, // FE already validated coordinates
         createdBy: userId,
       };
+
+      // Calculate route distance if coordinates are available (optional)
+      if (createDto.segment.originLatLong && createDto.segment.destinationLatLong) {
+        try {
+          const route = await this.geospatialService.calculateRouteFromCoordinates(
+            createDto.segment.originLatLong,
+            createDto.segment.destinationLatLong,
+          );
+          if (route) {
+            segmentData.estKm = route.distance;
+            if (route.polyline) {
+              segmentData.routePolyline = route.polyline;
+            }
+          }
+        } catch (error) {
+          // Route calculation failed - not critical, just log warning
+          Logger.warn(
+            `Route calculation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            'BookingsUseCase.create',
+          );
+        }
+      }
 
       // Prepare approval header data (only for submit, not for draft)
       // approverL1Id is taken from requester.approverL1Id field
@@ -436,8 +468,13 @@ export class BookingsUseCase implements BookingsUsecasePort {
     userId: string,
   ): Promise<IUsecaseResponse<IBooking>> => {
     try {
-      // 1. Find booking by ID
-      const existingBooking = await this.repository.findById(id);
+      // 1. Find booking by ID with segments included
+      const existingBooking = await this.repository.findById(id, {
+        segments: {
+          where: { deletedAt: null },
+          orderBy: { segmentNo: 'asc' },
+        },
+      } as Prisma.BookingInclude);
       if (!existingBooking) {
         return {
           error: {
@@ -668,12 +705,44 @@ export class BookingsUseCase implements BookingsUsecasePort {
       if (updateDto.segment) {
         const segmentData: Prisma.BookingSegmentUpdateInput = {};
 
+        // Get current segment to determine from/to values
+        const existingBookingWithSegments = existingBooking as any;
+        const currentSegment = existingBookingWithSegments.segments?.[0];
+
+        // Update segment data from FE (FE already sends lat/lng)
         if (updateDto.segment.from !== undefined) {
           segmentData.from = updateDto.segment.from;
         }
-
         if (updateDto.segment.to !== undefined) {
           segmentData.to = updateDto.segment.to;
+        }
+        if (updateDto.segment.originLatLong !== undefined) {
+          segmentData.originLatLong = updateDto.segment.originLatLong;
+        }
+        if (updateDto.segment.destinationLatLong !== undefined) {
+          segmentData.destinationLatLong = updateDto.segment.destinationLatLong;
+        }
+
+        // Calculate route distance if coordinates are available (optional)
+        const originLatLong = updateDto.segment.originLatLong || currentSegment?.originLatLong;
+        const destinationLatLong = updateDto.segment.destinationLatLong || currentSegment?.destinationLatLong;
+        if (originLatLong && destinationLatLong) {
+          try {
+            const route = await this.geospatialService.calculateRouteFromCoordinates(originLatLong, destinationLatLong);
+            if (route) {
+              segmentData.estKm = route.distance;
+              if (route.polyline) {
+                segmentData.routePolyline = route.polyline;
+              }
+            }
+          } catch (error) {
+            // Route calculation failed - not critical, just log warning
+            Logger.warn(
+              `Route calculation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              'BookingsUseCase.update',
+            );
+          }
+          segmentData.geocodeValidated = true; // FE already validated coordinates
         }
 
         // Update segment type based on serviceType

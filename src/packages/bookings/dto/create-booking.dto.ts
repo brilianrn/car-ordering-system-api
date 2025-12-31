@@ -17,11 +17,19 @@ import {
 export class BookingSegmentDto {
   @IsString()
   @IsNotEmpty()
-  from: string;
+  from: string; // Address text (for display)
 
   @IsString()
   @IsNotEmpty()
-  to: string;
+  to: string; // Address text (for display)
+
+  @IsString()
+  @IsNotEmpty()
+  originLatLong: string; // Format: "lat,lng" (e.g., "-6.2088,106.8456") - from FE
+
+  @IsString()
+  @IsNotEmpty()
+  destinationLatLong: string; // Format: "lat,lng" - from FE
 }
 
 export class CreateBookingDto {
