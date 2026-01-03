@@ -9,6 +9,62 @@ import { BookingsRepositoryPort } from '../ports/repository.port';
 export class BookingsRepository implements BookingsRepositoryPort {
   private readonly db: PrismaClient = clientDb;
 
+  /**
+   * Helper function to retry database operations with connection recovery
+   */
+  private async retryWithConnectionRecovery<T>(
+    operation: () => Promise<T>,
+    maxRetries = 3,
+    retryDelay = 1000,
+  ): Promise<T> {
+    let lastError: Error | unknown;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error: any) {
+        lastError = error;
+        const errorMessage = error?.message || String(error);
+
+        // Check if it's a connection error
+        const isConnectionError =
+          errorMessage.includes('Server has closed the connection') ||
+          errorMessage.includes('Connection terminated') ||
+          errorMessage.includes('Connection closed') ||
+          errorMessage.includes('Connection timeout') ||
+          errorMessage.includes('ECONNRESET') ||
+          errorMessage.includes('ENOTFOUND') ||
+          errorMessage.includes('ETIMEDOUT');
+
+        if (isConnectionError && attempt < maxRetries) {
+          Logger.warn(
+            `Database connection error (attempt ${attempt}/${maxRetries}): ${errorMessage}. Retrying...`,
+            'BookingsRepository.retryWithConnectionRecovery',
+          );
+
+          // Try to reconnect
+          try {
+            await this.db.$connect();
+          } catch (reconnectError) {
+            Logger.warn(
+              `Failed to reconnect: ${reconnectError instanceof Error ? reconnectError.message : 'Unknown error'}`,
+              'BookingsRepository.retryWithConnectionRecovery',
+            );
+          }
+
+          // Wait before retry (exponential backoff)
+          await new Promise((resolve) => setTimeout(resolve, retryDelay * attempt));
+          continue;
+        }
+
+        // If not a connection error or max retries reached, throw
+        throw error;
+      }
+    }
+
+    throw lastError;
+  }
+
   createWithTransaction = async (data: {
     booking: Prisma.BookingCreateInput;
     segment: Omit<Prisma.BookingSegmentCreateInput, 'booking'>;
@@ -349,16 +405,18 @@ export class BookingsRepository implements BookingsRepositoryPort {
 
   findById = async (id: number, include?: Prisma.BookingInclude): Promise<Booking | null> => {
     try {
-      if (include) {
+      return await this.retryWithConnectionRecovery(async () => {
+        if (include) {
+          return await this.db.booking.findUnique({
+            where: { id, deletedAt: null },
+            include,
+          });
+        }
+
         return await this.db.booking.findUnique({
           where: { id, deletedAt: null },
-          include,
+          include: BASE_BOOKING_INCLUDE as Prisma.BookingInclude,
         });
-      }
-
-      return await this.db.booking.findUnique({
-        where: { id, deletedAt: null },
-        include: BASE_BOOKING_INCLUDE as Prisma.BookingInclude,
       });
     } catch (error) {
       Logger.error(

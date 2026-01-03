@@ -29,6 +29,14 @@ export class BookingSegmentDto {
   @IsString()
   @IsOptional()
   destinationLatLong?: string; // Format: "lat,lng" - from FE
+
+  @IsOptional()
+  @IsString()
+  originNote?: string; // Detail lokasi origin (e.g., "Lobby Utama")
+
+  @IsOptional()
+  @IsString()
+  destinationNote?: string; // Detail lokasi destination
 }
 
 export class UpdateBookingDto {

@@ -10,7 +10,14 @@ import { CarpoolMergeEngineService } from '../services/carpool-merge-engine.serv
 import { CarpoolCostAllocatorService } from '../services/carpool-cost-allocator.service';
 import { CarpoolAuditService } from '../services/carpool-audit.service';
 import { CarpoolConfigService } from '../services/carpool-config.service';
-import { FindCandidatesDto, InviteCarpoolDto, RespondInviteDto, MergeCarpoolDto, UnmergeCarpoolDto } from '../dto';
+import {
+  FindCandidatesDto,
+  FindCandidatesPreSubmitDto,
+  InviteCarpoolDto,
+  RespondInviteDto,
+  MergeCarpoolDto,
+  UnmergeCarpoolDto,
+} from '../dto';
 import { ICarpoolCandidate, ICarpoolInviteResponse, ICarpoolGroupResponse } from '../domain/response';
 
 @Injectable()
@@ -47,6 +54,56 @@ export class CarpoolUseCase {
         error instanceof Error ? error.message : 'Error finding candidates',
         error instanceof Error ? error.stack : undefined,
         'CarpoolUseCase.findCandidates',
+      );
+      return {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to find candidates',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
+  }
+
+  /**
+   * Find carpool candidates for a pre-submit booking (before booking is created)
+   * This is used when user is filling the booking form and wants to see carpool recommendations
+   */
+  async findCandidatesPreSubmit(
+    dto: FindCandidatesPreSubmitDto,
+    userId: string,
+  ): Promise<IUsecaseResponse<ICarpoolCandidate[]>> {
+    try {
+      const candidates = await this.candidateMatcher.findCandidatesPreSubmit({
+        startAt: dto.startAt,
+        endAt: dto.endAt,
+        passengerCount: dto.passengerCount,
+        segment: {
+          from: dto.segment.from,
+          to: dto.segment.to,
+          originLatLong: dto.segment.originLatLong,
+          destinationLatLong: dto.segment.destinationLatLong,
+          originNote: dto.segment.originNote,
+          destinationNote: dto.segment.destinationNote,
+        },
+        requesterId: dto.requesterId || userId,
+      });
+
+      // Log MATCHED action (without hostBookingId since booking doesn't exist yet)
+      await this.auditService.logAction({
+        actionType: 'MATCHED',
+        userId,
+        metadata: {
+          candidateCount: candidates.length,
+          isPreSubmit: true,
+        },
+      });
+
+      return { data: candidates };
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error finding pre-submit candidates',
+        error instanceof Error ? error.stack : undefined,
+        'CarpoolUseCase.findCandidatesPreSubmit',
       );
       return {
         error: {

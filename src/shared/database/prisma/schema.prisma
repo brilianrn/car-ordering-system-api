@@ -191,39 +191,43 @@ model ParamItem {
 }
 
 model Booking {
-  id             Int              @id @default(autoincrement())
-  bookingNumber  String           @unique @map("booking_number")
-  requesterId    String           @map("requester_id")
-  submittedAt    DateTime         @default(now()) @map("submitted_at")
-  serviceType    ServiceType      @map("service_type")
-  purpose        String
-  startAt        DateTime         @map("start_at")
-  endAt          DateTime         @map("end_at")
-  passengerCount Int              @map("passenger_count")
-  passengerNames Json?            @map("passenger_names") // Array of passenger names
-  categoryId     Int              @map("category_id")
-  resourceMode   ResourceMode     @map("resource_mode")
-  bookingStatus  BookingStatus    @default(DRAFT) @map("booking_status")
-  cancelReason   String?          @map("cancel_reason")
-  autoCancelAt   DateTime?        @map("auto_cancel_at")
-  carpoolGroupId Int?             @map("carpool_group_id")
-  vehicleId      Int?             @map("vehicle_id") // Selected vehicle ID (can be changed by GA at L2)
-  createdAt      DateTime         @default(now()) @map("created_at")
-  createdBy      String           @map("created_by")
-  updatedAt      DateTime         @updatedAt @map("updated_at")
-  updatedBy      String?          @map("updated_by")
-  deletedAt      DateTime?        @map("deleted_at")
-  deletedBy      String?          @map("deleted_by")
-  approvalHeader ApprovalHeader?
-  assignment     Assignment?
-  carpoolGroup   CarpoolGroup?    @relation("CarpoolMembers", fields: [carpoolGroupId], references: [id])
-  category       Category         @relation(fields: [categoryId], references: [id])
-  requester      Employee         @relation(fields: [requesterId], references: [employeeId])
-  vehicle        Vehicle?         @relation("BookingVehicle", fields: [vehicleId], references: [id])
-  segments       BookingSegment[]
-  hostCarpool    CarpoolGroup?    @relation("CarpoolHost")
-  joinerInvite   CarpoolInvite?   @relation("CarpoolJoinerInvite")
-  hostInvites    CarpoolInvite[]  @relation("CarpoolHostInvite")
+  id              Int              @id @default(autoincrement())
+  bookingNumber   String           @unique @map("booking_number")
+  requesterId     String           @map("requester_id")
+  submittedAt     DateTime         @default(now()) @map("submitted_at")
+  serviceType     ServiceType      @map("service_type")
+  purpose         String
+  startAt         DateTime         @map("start_at")
+  endAt           DateTime         @map("end_at")
+  passengerCount  Int              @map("passenger_count")
+  passengerNames  Json?            @map("passenger_names") // Array of passenger names
+  categoryId      Int              @map("category_id")
+  resourceMode    ResourceMode     @map("resource_mode")
+  bookingStatus   BookingStatus    @default(DRAFT) @map("booking_status")
+  cancelReason    String?          @map("cancel_reason")
+  autoCancelAt    DateTime?        @map("auto_cancel_at")
+  carpoolGroupId  Int?             @map("carpool_group_id")
+  vehicleId       Int?             @map("vehicle_id") // Selected vehicle ID (can be changed by GA at L2)
+  originNote      String?          @map("origin_note") // Detail lokasi origin (e.g., "Lobby Utama")
+  destinationNote String?          @map("destination_note") // Detail lokasi destination
+  distance        Float?           @map("distance") // Jarak dalam KM (dari OSRM)
+  travelTime      Int?             @map("travel_time") // Estimasi waktu dalam menit (dari OSRM)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  createdBy       String           @map("created_by")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  updatedBy       String?          @map("updated_by")
+  deletedAt       DateTime?        @map("deleted_at")
+  deletedBy       String?          @map("deleted_by")
+  approvalHeader  ApprovalHeader?
+  assignment      Assignment?
+  carpoolGroup    CarpoolGroup?    @relation("CarpoolMembers", fields: [carpoolGroupId], references: [id])
+  category        Category         @relation(fields: [categoryId], references: [id])
+  requester       Employee         @relation(fields: [requesterId], references: [employeeId])
+  vehicle         Vehicle?         @relation("BookingVehicle", fields: [vehicleId], references: [id])
+  segments        BookingSegment[]
+  hostCarpool     CarpoolGroup?    @relation("CarpoolHost")
+  joinerInvite    CarpoolInvite?   @relation("CarpoolJoinerInvite")
+  hostInvites     CarpoolInvite[]  @relation("CarpoolHostInvite")
 
   @@map("booking")
 }

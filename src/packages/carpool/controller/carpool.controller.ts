@@ -1,10 +1,16 @@
-import { Controller, Get, Post, Patch, Body, Headers, Param, ParseIntPipe, Res, HttpStatus } from '@nestjs/common';
-import { Response } from 'express';
 import { ERoutes, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
+import { Body, Controller, Get, Headers, HttpStatus, Param, ParseIntPipe, Patch, Post, Res } from '@nestjs/common';
+import { Response } from 'express';
+import {
+  FindCandidatesPreSubmitDto,
+  InviteCarpoolDto,
+  MergeCarpoolDto,
+  RespondInviteDto,
+  UnmergeCarpoolDto,
+} from '../dto';
 import { CarpoolUseCase } from '../usecase/carpool.usecase';
-import { FindCandidatesDto, InviteCarpoolDto, RespondInviteDto, MergeCarpoolDto, UnmergeCarpoolDto } from '../dto';
 
 @Controller(`${ERoutes.BOOKINGS}/carpool`)
 export class CarpoolController {
@@ -38,6 +44,42 @@ export class CarpoolController {
         error instanceof Error ? error.message : 'Error in findCandidates',
         error instanceof Error ? error.stack : undefined,
         'CarpoolController.findCandidates',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: error?.message || validationMessage()[500](),
+      });
+    }
+  }
+
+  /**
+   * POST /api/v1/booking/carpool/candidates/pre-submit
+   * Find carpool candidates for a pre-submit booking (before booking is created)
+   * Used when user is filling the booking form and wants to see carpool recommendations
+   */
+  @Post('candidates/pre-submit')
+  async findCandidatesPreSubmit(
+    @Body() dto: FindCandidatesPreSubmitDto,
+    @Headers('x-user-id') userId: string,
+    @Res() res: Response,
+  ) {
+    try {
+      const result = await this.usecase.findCandidatesPreSubmit(dto, userId);
+
+      if (result?.error) {
+        return response[result.error.code || HttpStatus.BAD_REQUEST](res, {
+          message: result.error.message || validationMessage()[500](),
+        });
+      }
+
+      return response[HttpStatus.OK](res, {
+        message: validationMessage()[200](),
+        data: result?.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findCandidatesPreSubmit',
+        error instanceof Error ? error.stack : undefined,
+        'CarpoolController.findCandidatesPreSubmit',
       );
       return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
         message: error?.message || validationMessage()[500](),

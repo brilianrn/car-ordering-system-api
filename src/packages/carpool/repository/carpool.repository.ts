@@ -1,11 +1,10 @@
-import { Injectable } from '@nestjs/common';
 import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
-import { Prisma, PrismaClient, CarpoolGroup } from '@prisma/client';
+import { Injectable } from '@nestjs/common';
+import { CarpoolGroup, Prisma, PrismaClient } from '@prisma/client';
 
 // TODO: Generate Prisma client after schema migration
 type CarpoolInvite = any;
-type CarpoolConsentStatus = 'PENDING' | 'APPROVED' | 'DECLINED' | 'EXPIRED';
 
 @Injectable()
 export class CarpoolRepository {

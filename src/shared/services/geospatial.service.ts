@@ -86,7 +86,22 @@ export class GeospatialService {
         return cached;
       }
 
-      // Try OpenRouteService if API key is available
+      // Try OSRM first (free, no API key required)
+      try {
+        const route = await this.calculateRouteWithOSRM(
+          { lat: originLat, lng: originLng },
+          { lat: destLat, lng: destLng },
+        );
+        await this.cacheRoute(cacheKey, route);
+        return route;
+      } catch (error) {
+        Logger.warn(
+          `OSRM failed, trying OpenRouteService: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          'GeospatialService',
+        );
+      }
+
+      // Fallback to OpenRouteService if API key is available
       if (this.openRouteServiceApiKey) {
         try {
           const route = await this.calculateRouteWithOpenRouteService(
@@ -122,6 +137,43 @@ export class GeospatialService {
       );
       return null;
     }
+  }
+
+  /**
+   * Calculate route using OSRM (Open Source Routing Machine) - Free API
+   * API: https://router.project-osrm.org/route/v1/driving/
+   */
+  async calculateRouteWithOSRM(
+    origin: { lat: number; lng: number },
+    destination: { lat: number; lng: number },
+  ): Promise<RouteResult> {
+    const apiUrl = 'https://router.project-osrm.org/route/v1/driving';
+    const coordinates = `${origin.lng},${origin.lat};${destination.lng},${destination.lat}`;
+
+    const response = await axios.get(`${apiUrl}/${coordinates}`, {
+      params: {
+        overview: 'false', // We don't need full geometry, just distance and duration
+        geometries: 'geojson',
+      },
+      timeout: 10000,
+    });
+
+    if (!response.data || response.data.code !== 'Ok' || !response.data.routes || response.data.routes.length === 0) {
+      throw new Error('No route found from OSRM');
+    }
+
+    const route = response.data.routes[0];
+
+    // Distance in meters, convert to km
+    const distance = (route.distance || 0) / 1000;
+    // Duration in seconds, convert to minutes
+    const duration = Math.round((route.duration || 0) / 60);
+
+    return {
+      distance,
+      duration,
+      polyline: '', // Optional - can be implemented later if needed
+    };
   }
 
   /**

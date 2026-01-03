@@ -158,7 +158,9 @@ export class BookingsUseCase implements BookingsUsecasePort {
         createdBy: userId,
       };
 
-      // Calculate route distance if coordinates are available (optional)
+      // Calculate route distance and duration using OSRM API
+      let distance: number | undefined;
+      let travelTime: number | undefined;
       if (createDto.segment.originLatLong && createDto.segment.destinationLatLong) {
         try {
           const route = await this.geospatialService.calculateRouteFromCoordinates(
@@ -166,10 +168,14 @@ export class BookingsUseCase implements BookingsUsecasePort {
             createDto.segment.destinationLatLong,
           );
           if (route) {
+            // Save to segment for backward compatibility
             segmentData.estKm = route.distance;
             if (route.polyline) {
               segmentData.routePolyline = route.polyline;
             }
+            // Save to booking model for driver display
+            distance = route.distance;
+            travelTime = route.duration;
           }
         } catch (error) {
           // Route calculation failed - not critical, just log warning
@@ -178,6 +184,28 @@ export class BookingsUseCase implements BookingsUsecasePort {
             'BookingsUseCase.create',
           );
         }
+      }
+
+      // Add distance, travelTime, originNote, and destinationNote to booking data
+      // Using type assertion because Prisma client may not have these fields yet until prisma generate is run
+      const bookingDataWithRoute = bookingData as Prisma.BookingCreateInput & {
+        distance?: number;
+        travelTime?: number;
+        originNote?: string;
+        destinationNote?: string;
+      };
+
+      if (distance !== undefined) {
+        bookingDataWithRoute.distance = distance;
+      }
+      if (travelTime !== undefined) {
+        bookingDataWithRoute.travelTime = travelTime;
+      }
+      if (createDto.segment.originNote) {
+        bookingDataWithRoute.originNote = createDto.segment.originNote;
+      }
+      if (createDto.segment.destinationNote) {
+        bookingDataWithRoute.destinationNote = createDto.segment.destinationNote;
       }
 
       // Prepare approval header data (only for submit, not for draft)
@@ -201,7 +229,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
       // If any step fails, Prisma will automatically rollback all changes
       // ============================================
       const booking = await this.repository.createWithTransaction({
-        booking: bookingData,
+        booking: bookingDataWithRoute as Prisma.BookingCreateInput,
         segment: segmentData,
         approvalHeader: approvalHeaderData, // undefined for draft bookings
       });
@@ -723,17 +751,27 @@ export class BookingsUseCase implements BookingsUsecasePort {
           segmentData.destinationLatLong = updateDto.segment.destinationLatLong;
         }
 
-        // Calculate route distance if coordinates are available (optional)
+        // Calculate route distance and duration using OSRM API if coordinates are available
         const originLatLong = updateDto.segment.originLatLong || currentSegment?.originLatLong;
         const destinationLatLong = updateDto.segment.destinationLatLong || currentSegment?.destinationLatLong;
         if (originLatLong && destinationLatLong) {
           try {
             const route = await this.geospatialService.calculateRouteFromCoordinates(originLatLong, destinationLatLong);
             if (route) {
+              // Save to segment for backward compatibility
               segmentData.estKm = route.distance;
               if (route.polyline) {
                 segmentData.routePolyline = route.polyline;
               }
+              // Save to booking model for driver display
+              // Using type assertion because Prisma client may not have these fields yet until prisma generate is run
+              const updateDataWithRoute = updateData as Prisma.BookingUpdateInput & {
+                distance?: number;
+                travelTime?: number;
+              };
+              updateDataWithRoute.distance = route.distance;
+              updateDataWithRoute.travelTime = route.duration;
+              Object.assign(updateData, updateDataWithRoute);
             }
           } catch (error) {
             // Route calculation failed - not critical, just log warning
@@ -767,6 +805,20 @@ export class BookingsUseCase implements BookingsUsecasePort {
           await this.repository.updateSegment(id, segmentData);
         }
       }
+
+      // Update origin_note and destination_note if provided
+      // Using type assertion because Prisma client may not have these fields yet until prisma generate is run
+      const updateDataWithNotes = updateData as Prisma.BookingUpdateInput & {
+        originNote?: string;
+        destinationNote?: string;
+      };
+      if (updateDto.segment?.originNote !== undefined) {
+        updateDataWithNotes.originNote = updateDto.segment.originNote;
+      }
+      if (updateDto.segment?.destinationNote !== undefined) {
+        updateDataWithNotes.destinationNote = updateDto.segment.destinationNote;
+      }
+      Object.assign(updateData, updateDataWithNotes);
 
       // 11. Fetch updated booking with relations
       const booking = (await this.repository.findById(id)) as IBookingWithRelations | null;
