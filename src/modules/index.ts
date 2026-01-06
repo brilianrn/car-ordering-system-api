@@ -6,6 +6,9 @@ import { CarpoolModule } from './carpool.module';
 import { DriversModule } from './driver.module';
 import { UploadModule } from './upload.module';
 import { VehiclesModule } from './vehicles.module';
+import { ApprovalModule } from './approval.module';
+import { AssignmentModule } from './assignment.module';
+import { ExecutionModule } from './execution.module';
 
 @Module({
   imports: [
@@ -19,6 +22,9 @@ import { VehiclesModule } from './vehicles.module';
     UploadModule,
     BookingsModule,
     CarpoolModule,
+    ApprovalModule,
+    AssignmentModule,
+    ExecutionModule,
   ],
 })
 export class AppModule {}

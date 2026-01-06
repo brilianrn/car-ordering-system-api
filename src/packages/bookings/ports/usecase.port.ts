@@ -3,7 +3,6 @@ import { IAvailableVehicle, IBooking, IBookingListResponse } from '../domain/res
 import { CreateBookingDto } from '../dto/create-booking.dto';
 import { QueryAvailableVehiclesDto } from '../dto/query-available-vehicles.dto';
 import { QueryBookingDto } from '../dto/query-booking.dto';
-
 import { UpdateBookingDto } from '../dto/update-booking.dto';
 
 export interface BookingsUsecasePort {

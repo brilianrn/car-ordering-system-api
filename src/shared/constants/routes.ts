@@ -57,3 +57,22 @@ export const bookingRoute = {
   findOne: '/:id',
   lovAvailableVehicles: '/lov/available-vehicles',
 };
+
+export const approvalRoute = {
+  base: '/approval',
+  list: '/list',
+  approve: '/:id',
+};
+
+export const assignmentRoute = {
+  base: '/assignment',
+  assign: '/:id',
+};
+
+export const executionRoute = {
+  base: '/execution',
+  checkIn: '/segment/:segmentId/check-in',
+  checkOut: '/segment/:segmentId/check-out',
+  uploadReceipt: '/:executionId/receipt',
+  verifyExecution: '/:executionId/verify',
+};
