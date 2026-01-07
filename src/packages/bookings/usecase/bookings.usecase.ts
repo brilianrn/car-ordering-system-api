@@ -419,6 +419,9 @@ export class BookingsUseCase implements BookingsUsecasePort {
               },
             },
           },
+          orderBy: {
+            updatedAt: 'desc',
+          },
         }),
         this.repository.count(where),
       ]);

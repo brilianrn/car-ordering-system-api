@@ -6,6 +6,7 @@ export interface VehiclesRepositoryPort {
     take: number;
     where?: Prisma.VehicleWhereInput;
     include?: Prisma.VehicleInclude;
+    orderBy?: Prisma.VehicleOrderByWithRelationInput;
   }) => Promise<Vehicle[]>;
   count: (where?: Prisma.VehicleWhereInput) => Promise<number>;
   findUnique: (

@@ -240,9 +240,8 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
         }
       }
 
-      // Order by: Priority untuk yang lebih urgent (SLA due date untuk L1, created date untuk L2)
-      // Use createdAt desc as default, then sort by SLA in application logic if needed
-      const orderBy: Prisma.BookingOrderByWithRelationInput = { createdAt: 'desc' };
+      // Order by: Data terbaru di atas (baik setelah create atau update)
+      const orderBy: Prisma.BookingOrderByWithRelationInput = { updatedAt: 'desc' };
 
       const [data, total] = await Promise.all([
         this.repository.findApprovalList({

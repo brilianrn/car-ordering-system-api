@@ -58,6 +58,10 @@ export class CreateDriverDto {
   isDedicated?: boolean;
 
   @IsOptional()
+  @IsString()
+  realtimeStatus?: string;
+
+  @IsOptional()
   @IsInt()
   photoAssetId?: number;
 

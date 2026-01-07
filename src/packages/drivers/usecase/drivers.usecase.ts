@@ -160,7 +160,7 @@ export class DriversUseCase implements DriversUsecasePort {
         phoneNumber: createDto.phoneNumber,
         transmissionPref: createDto.transmissionPref,
         plantLocation: createDto.plantLocation,
-        realtimeStatus: 'Idle',
+        realtimeStatus: createDto.realtimeStatus ?? 'Idle',
         isDedicated: createDto.isDedicated ?? false,
         photoAsset: createDto.photoAssetId ? { connect: { id: createDto.photoAssetId } } : undefined,
         ktpAsset: createDto.ktpAssetId ? { connect: { id: createDto.ktpAssetId } } : undefined,
@@ -250,7 +250,9 @@ export class DriversUseCase implements DriversUsecasePort {
 
       // Handle asset IDs
       if (updateDto.photoAssetId !== undefined) {
-        updateData.photoAsset = updateDto.photoAssetId ? { connect: { id: updateDto.photoAssetId } } : { disconnect: true };
+        updateData.photoAsset = updateDto.photoAssetId
+          ? { connect: { id: updateDto.photoAssetId } }
+          : { disconnect: true };
       }
       if (updateDto.ktpAssetId !== undefined) {
         updateData.ktpAsset = updateDto.ktpAssetId ? { connect: { id: updateDto.ktpAssetId } } : { disconnect: true };
@@ -420,7 +422,7 @@ export class DriversUseCase implements DriversUsecasePort {
           skip,
           take: limit,
           where,
-          orderBy: { createdAt: 'desc' },
+          orderBy: { updatedAt: 'desc' },
         }),
         this.repository.count(where),
       ]);

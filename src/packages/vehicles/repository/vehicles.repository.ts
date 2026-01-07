@@ -13,6 +13,7 @@ export class VehiclesRepository implements VehiclesRepositoryPort {
     take: number;
     where?: Prisma.VehicleWhereInput;
     include?: Prisma.VehicleInclude;
+    orderBy?: Prisma.VehicleOrderByWithRelationInput;
   }): Promise<Vehicle[]> => {
     try {
       return await this.db.vehicle.findMany({

@@ -132,14 +132,18 @@ export class BookingsRepository implements BookingsRepositoryPort {
     take: number;
     where?: Prisma.BookingWhereInput;
     include?: Prisma.BookingInclude;
+    orderBy?: Prisma.BookingOrderByWithRelationInput;
   }): Promise<Booking[]> => {
     try {
       return await this.db.booking.findMany({
-        ...params,
+        skip: params.skip,
+        take: params.take,
         where: {
           ...params.where,
           deletedAt: null, // Always exclude soft-deleted records
         },
+        include: params.include,
+        orderBy: params.orderBy,
       });
     } catch (error) {
       Logger.error(

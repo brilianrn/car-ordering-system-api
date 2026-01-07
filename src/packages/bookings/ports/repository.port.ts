@@ -12,6 +12,7 @@ export interface BookingsRepositoryPort {
     take: number;
     where?: Prisma.BookingWhereInput;
     include?: Prisma.BookingInclude;
+    orderBy?: Prisma.BookingOrderByWithRelationInput;
   }): Promise<Booking[]>;
 
   count(where?: Prisma.BookingWhereInput): Promise<number>;

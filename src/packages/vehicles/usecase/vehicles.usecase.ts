@@ -90,6 +90,9 @@ export class VehiclesUseCase implements VehiclesUsecasePort {
             },
             dedicatedOrg: true,
           },
+          orderBy: {
+            updatedAt: 'desc',
+          },
         }),
         this.repository.count(where),
       ]);
