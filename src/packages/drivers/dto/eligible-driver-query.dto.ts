@@ -23,4 +23,8 @@ export class EligibleDriverQueryDto {
   @Transform(({ value }) => value === 'true')
   @IsBoolean()
   isDedicated?: boolean;
+
+  @IsOptional()
+  @IsString()
+  fullName?: string;
 }

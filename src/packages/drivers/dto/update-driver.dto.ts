@@ -45,6 +45,10 @@ export class UpdateDriverDto {
 
   @IsOptional()
   @IsInt()
+  photoAssetId?: number;
+
+  @IsOptional()
+  @IsInt()
   ktpAssetId?: number;
 
   @IsOptional()

@@ -12,6 +12,12 @@ export class DriversRepository implements DriversRepositoryPort {
     try {
       return await this.db.driver.create({
         data,
+        include: {
+          vendor: true,
+          photoAsset: true,
+          ktpAsset: true,
+          simAsset: true,
+        },
       });
     } catch (error) {
       Logger.error(
@@ -30,6 +36,12 @@ export class DriversRepository implements DriversRepositoryPort {
     try {
       return await this.db.driver.update({
         ...params,
+        include: {
+          vendor: true,
+          photoAsset: true,
+          ktpAsset: true,
+          simAsset: true,
+        },
       });
     } catch (error) {
       Logger.error(
@@ -68,6 +80,12 @@ export class DriversRepository implements DriversRepositoryPort {
           deletedAt: null,
           deletedBy: null,
         },
+        include: {
+          vendor: true,
+          photoAsset: true,
+          ktpAsset: true,
+          simAsset: true,
+        },
       });
     } catch (error) {
       Logger.error(
@@ -85,6 +103,9 @@ export class DriversRepository implements DriversRepositoryPort {
         where: { id },
         include: {
           vendor: true,
+          photoAsset: true,
+          ktpAsset: true,
+          simAsset: true,
         },
       });
 
@@ -114,6 +135,9 @@ export class DriversRepository implements DriversRepositoryPort {
         ...params,
         include: {
           vendor: true,
+          photoAsset: true,
+          ktpAsset: true,
+          simAsset: true,
         },
       });
     } catch (error) {
@@ -166,6 +190,9 @@ export class DriversRepository implements DriversRepositoryPort {
         take: params.take,
         include: {
           vendor: true,
+          photoAsset: true,
+          ktpAsset: true,
+          simAsset: true,
         },
       });
     } catch (error) {
@@ -189,6 +216,9 @@ export class DriversRepository implements DriversRepositoryPort {
         },
         include: {
           vendor: true,
+          photoAsset: true,
+          ktpAsset: true,
+          simAsset: true,
         },
       });
     } catch (error) {

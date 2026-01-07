@@ -12,12 +12,12 @@ import {
 } from 'class-validator';
 
 export class CreateDriverDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @Matches(/^[A-Z0-9]+$/, {
     message: 'driverCode must be uppercase alphanumeric',
   })
-  driverCode: string;
+  driverCode?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -56,6 +56,10 @@ export class CreateDriverDto {
   @IsOptional()
   @IsBoolean()
   isDedicated?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  photoAssetId?: number;
 
   @IsOptional()
   @IsInt()

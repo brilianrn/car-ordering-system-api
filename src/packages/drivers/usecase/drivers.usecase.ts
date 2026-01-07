@@ -1,3 +1,4 @@
+import { S3Service } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { Inject, Injectable } from '@nestjs/common';
@@ -14,24 +15,102 @@ export class DriversUseCase implements DriversUsecasePort {
   constructor(
     @Inject('DriversRepositoryPort')
     private readonly repository: DriversRepositoryPort,
+    private readonly s3Service: S3Service,
   ) {
     this.repository = repository;
   }
 
+  /**
+   * Helper method to generate presigned URLs for driver assets
+   */
+  private async enrichDriverWithPresignedUrls(driver: any): Promise<IDriver> {
+    const enrichedDriver = { ...driver };
+
+    // Generate presigned URL for photo asset
+    if (enrichedDriver.photoAsset?.url) {
+      try {
+        const presignedUrl = await this.s3Service.getPresignedUrl(enrichedDriver.photoAsset.url, 86400); // 1 day expiry
+        enrichedDriver.photoAsset = {
+          ...enrichedDriver.photoAsset,
+          url: presignedUrl,
+        };
+      } catch (error) {
+        Logger.error(
+          error instanceof Error ? error.message : 'Error generating presigned URL for photo asset',
+          error instanceof Error ? error.stack : undefined,
+          'DriversUseCase.enrichDriverWithPresignedUrls',
+        );
+      }
+    }
+
+    // Generate presigned URL for KTP asset
+    if (enrichedDriver.ktpAsset?.url) {
+      try {
+        const presignedUrl = await this.s3Service.getPresignedUrl(enrichedDriver.ktpAsset.url, 86400); // 1 day expiry
+        enrichedDriver.ktpAsset = {
+          ...enrichedDriver.ktpAsset,
+          url: presignedUrl,
+        };
+      } catch (error) {
+        Logger.error(
+          error instanceof Error ? error.message : 'Error generating presigned URL for KTP asset',
+          error instanceof Error ? error.stack : undefined,
+          'DriversUseCase.enrichDriverWithPresignedUrls',
+        );
+      }
+    }
+
+    // Generate presigned URL for SIM asset
+    if (enrichedDriver.simAsset?.url) {
+      try {
+        const presignedUrl = await this.s3Service.getPresignedUrl(enrichedDriver.simAsset.url, 86400); // 1 day expiry
+        enrichedDriver.simAsset = {
+          ...enrichedDriver.simAsset,
+          url: presignedUrl,
+        };
+      } catch (error) {
+        Logger.error(
+          error instanceof Error ? error.message : 'Error generating presigned URL for SIM asset',
+          error instanceof Error ? error.stack : undefined,
+          'DriversUseCase.enrichDriverWithPresignedUrls',
+        );
+      }
+    }
+
+    return enrichedDriver as IDriver;
+  }
+
   create = async (createDto: CreateDriverDto, userId: string): Promise<IUsecaseResponse<IDriver>> => {
     try {
-      // Validate unique driverCode
-      const existingByCode = await this.repository.findFirst({
-        driverCode: createDto.driverCode.toUpperCase(),
-      });
+      let driverCode: string;
 
-      if (existingByCode) {
-        return {
-          error: {
-            message: 'DRIVER_CODE_EXISTS',
-            code: 409,
-          },
-        };
+      // If driverCode is provided, validate uniqueness
+      if (createDto.driverCode) {
+        const existingByCode = await this.repository.findFirst({
+          driverCode: createDto.driverCode.toUpperCase(),
+        });
+
+        if (existingByCode) {
+          return {
+            error: {
+              message: 'DRIVER_CODE_EXISTS',
+              code: 409,
+            },
+          };
+        }
+        driverCode = createDto.driverCode.toUpperCase();
+      } else {
+        // Auto-generate unique driverCode
+        const generatedCode = await this.generateDriverCode();
+        if (!generatedCode) {
+          return {
+            error: {
+              message: 'FAILED_TO_GENERATE_DRIVER_CODE',
+              code: 500,
+            },
+          };
+        }
+        driverCode = generatedCode;
       }
 
       // Validate unique simNumber
@@ -68,7 +147,7 @@ export class DriversUseCase implements DriversUsecasePort {
       }
 
       const driver = await this.repository.create({
-        driverCode: createDto.driverCode.toUpperCase(),
+        driverCode,
         fullName: createDto.fullName,
         internalNik: createDto.internalNik,
         driverType: createDto.driverType,
@@ -83,12 +162,15 @@ export class DriversUseCase implements DriversUsecasePort {
         plantLocation: createDto.plantLocation,
         realtimeStatus: 'Idle',
         isDedicated: createDto.isDedicated ?? false,
+        photoAsset: createDto.photoAssetId ? { connect: { id: createDto.photoAssetId } } : undefined,
         ktpAsset: createDto.ktpAssetId ? { connect: { id: createDto.ktpAssetId } } : undefined,
         simAsset: createDto.simAssetId ? { connect: { id: createDto.simAssetId } } : undefined,
         createdBy: userId,
       });
 
-      return { data: driver as IDriver };
+      const enrichedDriver = await this.enrichDriverWithPresignedUrls(driver);
+
+      return { data: enrichedDriver };
     } catch (error) {
       Logger.error(
         error instanceof Error ? error.message : 'Error in create',
@@ -167,6 +249,9 @@ export class DriversUseCase implements DriversUsecasePort {
       }
 
       // Handle asset IDs
+      if (updateDto.photoAssetId !== undefined) {
+        updateData.photoAsset = updateDto.photoAssetId ? { connect: { id: updateDto.photoAssetId } } : { disconnect: true };
+      }
       if (updateDto.ktpAssetId !== undefined) {
         updateData.ktpAsset = updateDto.ktpAssetId ? { connect: { id: updateDto.ktpAssetId } } : { disconnect: true };
       }
@@ -179,7 +264,9 @@ export class DriversUseCase implements DriversUsecasePort {
         data: updateData,
       });
 
-      return { data: driver as IDriver };
+      const enrichedDriver = await this.enrichDriverWithPresignedUrls(driver);
+
+      return { data: enrichedDriver };
     } catch (error) {
       Logger.error(
         error instanceof Error ? error.message : 'Error in update',
@@ -231,7 +318,9 @@ export class DriversUseCase implements DriversUsecasePort {
 
       const driver = await this.repository.restore(id);
 
-      return { data: driver as IDriver };
+      const enrichedDriver = await this.enrichDriverWithPresignedUrls(driver);
+
+      return { data: enrichedDriver };
     } catch (error) {
       Logger.error(
         error instanceof Error ? error.message : 'Error in restore',
@@ -257,9 +346,11 @@ export class DriversUseCase implements DriversUsecasePort {
 
       const isSimExpired = driver.simExpiry < new Date();
 
+      const enrichedDriver = await this.enrichDriverWithPresignedUrls(driver);
+
       return {
         data: {
-          ...driver,
+          ...enrichedDriver,
           isSimExpired,
         } as IDriverDetailResponse,
       };
@@ -334,11 +425,16 @@ export class DriversUseCase implements DriversUsecasePort {
         this.repository.count(where),
       ]);
 
-      // Add computed isSimExpired
-      const driversWithExpiry = data.map((driver) => ({
-        ...driver,
-        isSimExpired: driver.simExpiry < new Date(),
-      })) as IDriver[];
+      // Add computed isSimExpired and enrich with presigned URLs
+      const driversWithExpiry = await Promise.all(
+        data.map(async (driver) => {
+          const enrichedDriver = await this.enrichDriverWithPresignedUrls(driver);
+          return {
+            ...enrichedDriver,
+            isSimExpired: driver.simExpiry < new Date(),
+          };
+        }),
+      );
 
       return {
         data: {
@@ -366,6 +462,7 @@ export class DriversUseCase implements DriversUsecasePort {
     vendorId?: number;
     driverType?: DriverType;
     isDedicated?: boolean;
+    fullName?: string;
   }): Promise<IUsecaseResponse<IDriverEligibleResponse>> => {
     try {
       const now = new Date();
@@ -412,14 +509,28 @@ export class DriversUseCase implements DriversUsecasePort {
         where.isDedicated = query.isDedicated;
       }
 
+      // Full name filter
+      if (query.fullName) {
+        where.fullName = {
+          contains: query.fullName,
+          mode: 'insensitive',
+        };
+      }
+
       const data = await this.repository.findEligible({
         where,
       });
 
-      const driversWithExpiry = data.map((driver) => ({
-        ...driver,
-        isSimExpired: driver.simExpiry < now,
-      })) as IDriver[];
+      // Enrich with presigned URLs and add computed isSimExpired
+      const driversWithExpiry = await Promise.all(
+        data.map(async (driver) => {
+          const enrichedDriver = await this.enrichDriverWithPresignedUrls(driver);
+          return {
+            ...enrichedDriver,
+            isSimExpired: driver.simExpiry < now,
+          };
+        }),
+      );
 
       return {
         data: {
@@ -443,10 +554,16 @@ export class DriversUseCase implements DriversUsecasePort {
     try {
       const data = await this.repository.findExpiredSIM();
 
-      const driversWithExpiry = data.map((driver) => ({
-        ...driver,
-        isSimExpired: true,
-      })) as IDriver[];
+      // Enrich with presigned URLs and add computed isSimExpired
+      const driversWithExpiry = await Promise.all(
+        data.map(async (driver) => {
+          const enrichedDriver = await this.enrichDriverWithPresignedUrls(driver);
+          return {
+            ...enrichedDriver,
+            isSimExpired: true,
+          };
+        }),
+      );
 
       return {
         data: {
@@ -465,4 +582,64 @@ export class DriversUseCase implements DriversUsecasePort {
       return { error };
     }
   };
+
+  /**
+   * Generate unique driver code with format: DRV{SEQUENCE}
+   * Example: DRV001, DRV002, DRV003
+   * Retries until a unique code is found
+   */
+  private async generateDriverCode(): Promise<string | null> {
+    try {
+      // Find all existing driver codes with DRV prefix
+      const allDriversWithPrefix = await this.repository.findList({
+        skip: 0,
+        take: 10000,
+        where: {
+          driverCode: {
+            startsWith: 'DRV',
+          },
+        },
+      });
+
+      let maxSequence = 0;
+      for (const driver of allDriversWithPrefix) {
+        const code = driver.driverCode;
+        // Extract numeric part after "DRV"
+        const numericPart = code.substring(3);
+        const sequence = parseInt(numericPart, 10);
+        if (!isNaN(sequence) && sequence > maxSequence) {
+          maxSequence = sequence;
+        }
+      }
+
+      const maxAttempts = 100;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const newSequence = maxSequence + 1 + attempt;
+        const sequenceStr = newSequence.toString().padStart(3, '0');
+        const generatedCode = `DRV${sequenceStr}`;
+
+        const duplicateCheck = await this.repository.findFirst({
+          driverCode: generatedCode,
+        });
+
+        if (!duplicateCheck) {
+          return generatedCode;
+        }
+      }
+
+      Logger.error(
+        `Failed to generate unique driver code after ${maxAttempts} attempts`,
+        undefined,
+        'DriversUseCase.generateDriverCode',
+      );
+      return null;
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in generateDriverCode',
+        error instanceof Error ? error.stack : undefined,
+        'DriversUseCase.generateDriverCode',
+      );
+      return null;
+    }
+  }
 }

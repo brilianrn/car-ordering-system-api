@@ -116,6 +116,7 @@ model Driver {
   plantLocation    String           @map("plant_location")
   realtimeStatus   String           @default("Idle") @map("realtime_status")
   isDedicated      Boolean          @default(false) @map("is_dedicated")
+  photoAssetId     Int?             @map("photo_asset_id")
   ktpAssetId       Int?             @map("ktp_asset_id")
   simAssetId       Int?             @map("sim_asset_id")
   createdAt        DateTime         @default(now()) @map("created_at")
@@ -128,6 +129,7 @@ model Driver {
   vendor           Vendor?          @relation(fields: [vendorId], references: [id])
   travelOrders     SuratJalan[]     @relation("SJDriver")
   defaultVehicle   Vehicle?         @relation("DefaultDriverRelation")
+  photoAsset       Asset?           @relation("DriverPhoto", fields: [photoAssetId], references: [id])
   ktpAsset         Asset?           @relation("DriverKTP", fields: [ktpAssetId], references: [id])
   simAsset         Asset?           @relation("DriverSIM", fields: [simAssetId], references: [id])
 
@@ -488,6 +490,7 @@ model Asset {
   deletedAt     DateTime?      @map("deleted_at")
   deletedBy     String?        @map("deleted_by")
   vehicleImages VehicleImage[]
+  driverPhoto   Driver[]      @relation("DriverPhoto")
   driverKtp     Driver[]       @relation("DriverKTP")
   driverSim     Driver[]       @relation("DriverSIM")
 

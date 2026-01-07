@@ -50,6 +50,12 @@ export class AssignmentRepository implements AssignmentRepositoryPort {
     try {
       return await this.db.driver.findUnique({
         where: { id: driverId, deletedAt: null },
+        include: {
+          vendor: true,
+          photoAsset: true,
+          ktpAsset: true,
+          simAsset: true,
+        },
       });
     } catch (error) {
       Logger.error(
@@ -67,7 +73,14 @@ export class AssignmentRepository implements AssignmentRepositoryPort {
         where: { bookingId, deletedAt: null },
         include: {
           vehicleChosen: true,
-          driverChosen: true,
+          driverChosen: {
+            include: {
+              vendor: true,
+              photoAsset: true,
+              ktpAsset: true,
+              simAsset: true,
+            },
+          },
         },
       });
     } catch (error) {
@@ -86,7 +99,14 @@ export class AssignmentRepository implements AssignmentRepositoryPort {
         data,
         include: {
           vehicleChosen: true,
-          driverChosen: true,
+          driverChosen: {
+            include: {
+              vendor: true,
+              photoAsset: true,
+              ktpAsset: true,
+              simAsset: true,
+            },
+          },
         },
       });
     } catch (error) {

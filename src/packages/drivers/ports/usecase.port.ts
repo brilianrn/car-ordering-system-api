@@ -18,6 +18,7 @@ export interface DriversUsecasePort {
     vendorId?: number;
     driverType?: DriverType;
     isDedicated?: boolean;
+    fullName?: string;
   }) => Promise<IUsecaseResponse<IDriverEligibleResponse>>;
   findExpiredSIM: () => Promise<IUsecaseResponse<IDriverEligibleResponse>>;
 }
