@@ -9,6 +9,7 @@ import { VehiclesModule } from './vehicles.module';
 import { ApprovalModule } from './approval.module';
 import { AssignmentModule } from './assignment.module';
 import { ExecutionModule } from './execution.module';
+import { CostVariableModule } from './cost-variable.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ExecutionModule } from './execution.module';
     ApprovalModule,
     AssignmentModule,
     ExecutionModule,
+    CostVariableModule,
   ],
 })
 export class AppModule {}

@@ -597,3 +597,26 @@ enum CarpoolActionType {
   UNMERGE
   COST_RECALCULATED
 }
+
+model CostVariable {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique @map("code")
+  name        String    @map("name")
+  category    String    @map("category") // e.g., "FUEL", "TOLL", "PARKING", "DRIVER", "OTHER"
+  unit        String    @map("unit") // e.g., "KM", "HOUR", "TRIP", "FIXED"
+  value       Float     @map("value") // Cost value
+  currency    String    @default("IDR") @map("currency")
+  isActive    Boolean   @default(true) @map("is_active")
+  effectiveFrom DateTime @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to") // Optional end date
+  description String?   @map("description")
+  metadata    Json?     @map("metadata") // Additional configuration (e.g., vehicle type specific rates)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String    @map("created_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?   @map("deleted_by")
+
+  @@map("cost_variable")
+}

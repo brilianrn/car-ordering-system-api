@@ -10,6 +10,7 @@ export enum ERoutes {
   DRIVERS = `${EPrefix.V1}/driver`,
   UPLOAD = `${EPrefix.V1}/upload`,
   BOOKINGS = `${EPrefix.V1}/booking`,
+  COST_VARIABLE = `${EPrefix.V1}/cost-variable`,
 }
 
 export const authRoute = {
@@ -75,4 +76,13 @@ export const executionRoute = {
   checkOut: '/segment/:segmentId/check-out',
   uploadReceipt: '/:executionId/receipt',
   verifyExecution: '/:executionId/verify',
+};
+
+export const costVariableRoute = {
+  list: '',
+  findOne: '/:id',
+  create: '',
+  update: '/:id',
+  delete: '/:id',
+  restore: '/:id/restore',
 };
