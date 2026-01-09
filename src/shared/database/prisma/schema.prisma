@@ -114,7 +114,7 @@ model Driver {
   phoneNumber      String?          @map("phone_number")
   transmissionPref TransmissionType @default(ALL) @map("transmission_pref")
   plantLocation    String           @map("plant_location")
-  realtimeStatus   String           @default("Idle") @map("realtime_status")
+  realtimeStatus   RealtimeStatus  @default(Idle) @map("realtime_status")
   isDedicated      Boolean          @default(false) @map("is_dedicated")
   photoAssetId     Int?             @map("photo_asset_id")
   ktpAssetId       Int?             @map("ktp_asset_id")
@@ -535,6 +535,13 @@ enum TransmissionType {
 enum DriverType {
   INTERNAL
   EXTERNAL
+}
+
+enum RealtimeStatus {
+  Idle
+  OnDuty
+  OnLeave
+  Inactive
 }
 
 enum ServiceType {

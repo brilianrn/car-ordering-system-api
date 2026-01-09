@@ -3,7 +3,7 @@ import { BookingsRepository } from '@/packages/bookings/repository/bookings.repo
 import { BookingsUseCase } from '@/packages/bookings/usecase/bookings.usecase';
 import { GeospatialService } from '@/shared/services/geospatial.service';
 import { NotificationService, S3Service } from '@/shared/utils';
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { RabbitMQModule } from './rabbitmq.module';
 
 @Module({

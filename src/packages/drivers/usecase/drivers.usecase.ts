@@ -2,7 +2,7 @@ import { S3Service } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { Inject, Injectable } from '@nestjs/common';
-import { DriverType, Prisma } from '@prisma/client';
+import { DriverType, Prisma, RealtimeStatus } from '@prisma/client';
 import { IDriver, IDriverDetailResponse, IDriverEligibleResponse, IDriverListResponse } from '../domain/response';
 import { CreateDriverDto } from '../dto/create-driver.dto';
 import { ListDriverQueryDto } from '../dto/list-driver-query.dto';
@@ -160,7 +160,7 @@ export class DriversUseCase implements DriversUsecasePort {
         phoneNumber: createDto.phoneNumber,
         transmissionPref: createDto.transmissionPref,
         plantLocation: createDto.plantLocation,
-        realtimeStatus: createDto.realtimeStatus ?? 'Idle',
+        realtimeStatus: createDto.realtimeStatus ?? RealtimeStatus.Idle,
         isDedicated: createDto.isDedicated ?? false,
         photoAsset: createDto.photoAssetId ? { connect: { id: createDto.photoAssetId } } : undefined,
         ktpAsset: createDto.ktpAssetId ? { connect: { id: createDto.ktpAssetId } } : undefined,
@@ -471,7 +471,7 @@ export class DriversUseCase implements DriversUsecasePort {
 
       const where: Prisma.DriverWhereInput = {
         deletedAt: null,
-        realtimeStatus: 'Idle',
+        realtimeStatus: RealtimeStatus.Idle,
         simExpiry: {
           gte: now,
         },

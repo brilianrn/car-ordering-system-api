@@ -16,4 +16,3 @@ import { Module } from '@nestjs/common';
   exports: [CostVariableRepository, CostVariableUseCase],
 })
 export class CostVariableModule {}
-

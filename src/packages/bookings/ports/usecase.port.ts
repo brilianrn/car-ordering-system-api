@@ -1,5 +1,5 @@
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
-import { IAvailableVehicle, IBooking, IBookingListResponse } from '../domain/response';
+import { IAvailableVehicle, IBooking, IBookingListResponse, ITripDetail } from '../domain/response';
 import { CreateBookingDto } from '../dto/create-booking.dto';
 import { QueryAvailableVehiclesDto } from '../dto/query-available-vehicles.dto';
 import { QueryBookingDto } from '../dto/query-booking.dto';
@@ -23,4 +23,6 @@ export interface BookingsUsecasePort {
   ): Promise<IUsecaseResponse<IBooking>>;
 
   findOne(id: number, requesterId?: string): Promise<IUsecaseResponse<IBooking>>;
+
+  findTripDetail(id: number, userId?: string): Promise<IUsecaseResponse<ITripDetail>>;
 }

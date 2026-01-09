@@ -59,6 +59,11 @@ export const bookingRoute = {
   lovAvailableVehicles: '/lov/available-vehicles',
 };
 
+export const tripRoute = {
+  base: '/trip',
+  detail: '/:id',
+};
+
 export const approvalRoute = {
   base: '/approval',
   list: '/list',

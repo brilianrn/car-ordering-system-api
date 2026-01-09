@@ -1,4 +1,4 @@
-import { DriverType, TransmissionType } from '@prisma/client';
+import { DriverType, RealtimeStatus, TransmissionType } from '@prisma/client';
 import { IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class UpdateDriverDto {
@@ -28,8 +28,8 @@ export class UpdateDriverDto {
   plantLocation?: string;
 
   @IsOptional()
-  @IsString()
-  realtimeStatus?: string;
+  @IsEnum(RealtimeStatus)
+  realtimeStatus?: RealtimeStatus;
 
   @IsOptional()
   @IsBoolean()

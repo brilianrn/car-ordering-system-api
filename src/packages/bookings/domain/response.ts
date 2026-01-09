@@ -58,3 +58,55 @@ export interface IAvailableVehicle {
   status: string;
   dedicatedOrgId: number | null;
 }
+
+/**
+ * Trip Detail Response
+ * Complete trip information including booking, surat jalan, assignment, and execution details
+ */
+export interface ITripDetail {
+  booking: IBooking;
+  suratJalan?: {
+    id: number;
+    sjCode: string;
+    status: string;
+    isHandover: boolean;
+    stopList?: any;
+    createdAt: Date;
+    updatedAt: Date;
+    driver: {
+      id: number;
+      driverCode: string;
+      fullName: string;
+      phoneNumber: string | null;
+      photoUrl?: string;
+    };
+    vehicle: {
+      id: number;
+      vehicleCode: string;
+      licensePlate: string;
+      brandModel: string;
+    };
+  } | null;
+  execution?: {
+    id: number;
+    status: string;
+    checkInAt?: Date | null;
+    checkOutAt?: Date | null;
+    odoStart?: number | null;
+    odoEnd?: number | null;
+    odoDistance?: number | null;
+    gpsDistance?: number | null;
+    anomalyFlags?: any;
+    createdAt: Date;
+    updatedAt: Date;
+  } | null;
+  verification?: {
+    id: number;
+    verifyStatus: string;
+    verifierId: string;
+    verifiedAt?: Date | null;
+    anomalyHandled: boolean;
+    reimburseTicket?: string | null;
+    replenishTicket?: string | null;
+  } | null;
+}

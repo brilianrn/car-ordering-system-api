@@ -7,7 +7,7 @@ import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { BookingStatus, Prisma, ServiceType } from '@prisma/client';
 import { IBookingWithRelations } from '../domain/entities';
 import { transformBookingWithPresignedUrls } from '../domain/helpers/presigned-url.helper';
-import { IAvailableVehicle, IBooking, IBookingListResponse } from '../domain/response';
+import { IAvailableVehicle, IBooking, IBookingListResponse, ITripDetail } from '../domain/response';
 import { CreateBookingDto } from '../dto/create-booking.dto';
 import { QueryAvailableVehiclesDto } from '../dto/query-available-vehicles.dto';
 import { QueryBookingDto } from '../dto/query-booking.dto';
@@ -114,6 +114,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
       // 7. Calculate SLA due date: currentDate + 24 hours (only for submit)
       const assignedAt = new Date(); // Current date/time
       const slaDueAt = new Date(assignedAt.getTime() + 24 * 60 * 60 * 1000); // Exactly 24 hours from now
+
       const bookingData: Prisma.BookingCreateInput = {
         bookingNumber,
         requester: {
@@ -399,7 +400,23 @@ export class BookingsUseCase implements BookingsUsecasePort {
           where,
           include: {
             category: true,
-            segments: true,
+            segments: {
+              where: { deletedAt: null },
+              orderBy: { segmentNo: 'asc' },
+              include: {
+                execution: {
+                  where: { deletedAt: null },
+                  include: {
+                    verification: {
+                      where: { deletedAt: null },
+                      include: {
+                        receiptItems: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
             approvalHeader: {
               include: {
                 approverL1: {
@@ -416,6 +433,26 @@ export class BookingsUseCase implements BookingsUsecasePort {
                 employeeId: true,
                 fullName: true,
                 email: true,
+              },
+            },
+            assignment: {
+              include: {
+                vehicleChosen: {
+                  include: {
+                    images: {
+                      select: {
+                        asset: true,
+                      },
+                    },
+                  },
+                },
+                driverChosen: {
+                  include: {
+                    photoAsset: true,
+                    ktpAsset: true,
+                    simAsset: true,
+                  },
+                },
               },
             },
           },
@@ -933,6 +970,166 @@ export class BookingsUseCase implements BookingsUsecasePort {
       return {
         error: {
           message: error instanceof Error ? error.message : 'Failed to fetch booking details',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
+  };
+
+  findTripDetail = async (id: number, userId?: string): Promise<IUsecaseResponse<ITripDetail>> => {
+    try {
+      // 1. Get booking with all relations
+      const booking = (await this.repository.findById(id)) as IBookingWithRelations | null;
+
+      if (!booking) {
+        return {
+          error: {
+            message: `Booking with ID ${id} not found`,
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
+      }
+
+      // 2. Validate booking is assigned (trip only exists for assigned bookings)
+      if (booking.bookingStatus !== BookingStatus.ASSIGNED) {
+        return {
+          error: {
+            message: `Booking is not assigned yet. Trip detail is only available for assigned bookings. Current status: ${booking.bookingStatus}`,
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
+      }
+
+      // 3. Transform booking with presigned URLs
+      const bookingWithPresignedUrls = await transformBookingWithPresignedUrls(booking, this.s3Service);
+
+      // 4. Get SuratJalan (Travel Order) for the booking
+      let suratJalan: ITripDetail['suratJalan'] = null;
+      if (booking.segments && booking.segments.length > 0) {
+        const segment = booking.segments[0];
+        const sj = await this.db.suratJalan.findFirst({
+          where: {
+            bookingId: id,
+            segmentId: segment.id,
+            deletedAt: null,
+          },
+          include: {
+            driver: {
+              include: {
+                photoAsset: true,
+              },
+            },
+            vehicle: true,
+          },
+        });
+
+        if (sj) {
+          // Get driver photo presigned URL if available
+          let driverPhotoUrl: string | undefined;
+          if (sj.driver.photoAsset) {
+            try {
+              driverPhotoUrl = await this.s3Service.getPresignedUrl(sj.driver.photoAsset.url);
+            } catch (error) {
+              Logger.warn(
+                `Failed to generate presigned URL for driver photo: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                'BookingsUseCase.findTripDetail',
+              );
+            }
+          }
+
+          suratJalan = {
+            id: sj.id,
+            sjCode: sj.sjCode,
+            status: sj.status,
+            isHandover: sj.isHandover,
+            stopList: sj.stopList,
+            createdAt: sj.createdAt,
+            updatedAt: sj.updatedAt,
+            driver: {
+              id: sj.driver.id,
+              driverCode: sj.driver.driverCode,
+              fullName: sj.driver.fullName,
+              phoneNumber: sj.driver.phoneNumber,
+              photoUrl: driverPhotoUrl,
+            },
+            vehicle: {
+              id: sj.vehicle.id,
+              vehicleCode: sj.vehicle.vehicleCode,
+              licensePlate: sj.vehicle.licensePlate,
+              brandModel: sj.vehicle.brandModel,
+            },
+          };
+        }
+      }
+
+      // 5. Get SegmentExecution if exists
+      let execution: ITripDetail['execution'] = null;
+      if (booking.segments && booking.segments.length > 0) {
+        const segment = booking.segments[0];
+        const segmentExecution = await this.db.segmentExecution.findFirst({
+          where: {
+            segmentId: segment.id,
+            deletedAt: null,
+          },
+        });
+
+        if (segmentExecution) {
+          execution = {
+            id: segmentExecution.id,
+            status: segmentExecution.status,
+            checkInAt: segmentExecution.checkInAt,
+            checkOutAt: segmentExecution.checkOutAt,
+            odoStart: segmentExecution.odoStart,
+            odoEnd: segmentExecution.odoEnd,
+            odoDistance: segmentExecution.odoDistance,
+            gpsDistance: segmentExecution.gpsDistance,
+            anomalyFlags: segmentExecution.anomalyFlags,
+            createdAt: segmentExecution.createdAt,
+            updatedAt: segmentExecution.updatedAt,
+          };
+        }
+      }
+
+      // 6. Get VerificationHeader if exists
+      let verification: ITripDetail['verification'] = null;
+      if (execution) {
+        const verificationHeader = await this.db.verificationHeader.findFirst({
+          where: {
+            segmentExecutionId: execution.id,
+            deletedAt: null,
+          },
+        });
+
+        if (verificationHeader) {
+          verification = {
+            id: verificationHeader.id,
+            verifyStatus: verificationHeader.verifyStatus,
+            verifierId: verificationHeader.verifierId,
+            verifiedAt: verificationHeader.verifiedAt,
+            anomalyHandled: verificationHeader.anomalyHandled,
+            reimburseTicket: verificationHeader.reimburseTicket,
+            replenishTicket: verificationHeader.replenishTicket,
+          };
+        }
+      }
+
+      const tripDetail: ITripDetail = {
+        booking: bookingWithPresignedUrls as IBooking,
+        suratJalan,
+        execution,
+        verification,
+      };
+
+      return { data: tripDetail };
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findTripDetail',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsUseCase.findTripDetail',
+      );
+      return {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to fetch trip details',
           code: HttpStatus.INTERNAL_SERVER_ERROR,
         },
       };

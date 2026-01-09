@@ -73,6 +73,9 @@ export class CarpoolUseCase {
     userId: string,
   ): Promise<IUsecaseResponse<ICarpoolCandidate[]>> {
     try {
+      // Only exclude requesterId if explicitly provided in DTO
+      // This matches the behavior of findCandidates which doesn't filter by requesterId
+      // If requesterId is not provided, show all candidates (including from same requester)
       const candidates = await this.candidateMatcher.findCandidatesPreSubmit({
         startAt: dto.startAt,
         endAt: dto.endAt,
@@ -85,7 +88,7 @@ export class CarpoolUseCase {
           originNote: dto.segment.originNote,
           destinationNote: dto.segment.destinationNote,
         },
-        requesterId: dto.requesterId || userId,
+        requesterId: dto.requesterId, // Only exclude if explicitly provided, don't use userId from header
       });
 
       // Log MATCHED action (without hostBookingId since booking doesn't exist yet)

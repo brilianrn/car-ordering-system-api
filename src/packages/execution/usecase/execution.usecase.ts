@@ -2,7 +2,7 @@ import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { BookingStatus, Prisma } from '@prisma/client';
+import { BookingStatus, Prisma, RealtimeStatus } from '@prisma/client';
 import { CheckInSegmentDto } from '../dto/check-in-segment.dto';
 import { CheckOutSegmentDto } from '../dto/check-out-segment.dto';
 import { UploadReceiptDto } from '../dto/upload-receipt.dto';
@@ -58,7 +58,18 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
         };
       }
 
-      // 4. Create segment execution
+      // 4. Get SuratJalan to get driver ID
+      const suratJalan = await this.db.suratJalan.findFirst({
+        where: {
+          segmentId,
+          deletedAt: null,
+        },
+        select: {
+          driverId: true,
+        },
+      });
+
+      // 5. Create segment execution
       const checkInAt = new Date();
       const execution = await this.repository.createSegmentExecution({
         segment: { connect: { id: segmentId } },
@@ -68,11 +79,30 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
         createdBy: userId,
       });
 
-      // 5. Update SuratJalan status
+      // 6. Update SuratJalan status
       await this.db.suratJalan.updateMany({
         where: { segmentId, deletedAt: null },
         data: { status: 'Active', updatedBy: userId },
       });
+
+      // 7. Update driver realtime status to OnDuty
+      if (suratJalan?.driverId) {
+        try {
+          await this.db.driver.update({
+            where: { id: suratJalan.driverId },
+            data: {
+              realtimeStatus: RealtimeStatus.OnDuty,
+              updatedBy: userId,
+            },
+          });
+        } catch (driverUpdateError) {
+          // Log error but don't fail check-in
+          Logger.warn(
+            `Failed to update driver realtime status: ${driverUpdateError instanceof Error ? driverUpdateError.message : 'Unknown error'}`,
+            'ExecutionUseCase.checkInSegment',
+          );
+        }
+      }
 
       return { data: execution };
     } catch (error) {
@@ -128,7 +158,18 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
         anomalyFlags.distanceDifference = Math.abs(odoDistance - dto.gpsDistance);
       }
 
-      // 5. Update segment execution
+      // 5. Get SuratJalan to get driver ID
+      const suratJalan = await this.db.suratJalan.findFirst({
+        where: {
+          segmentId,
+          deletedAt: null,
+        },
+        select: {
+          driverId: true,
+        },
+      });
+
+      // 6. Update segment execution
       const checkOutAt = new Date();
       await this.repository.updateSegmentExecution(segmentId, {
         status: 'Completed',
@@ -140,13 +181,45 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
         updatedBy: userId,
       });
 
-      // 6. Update SuratJalan status
+      // 7. Update SuratJalan status
       await this.db.suratJalan.updateMany({
         where: { segmentId, deletedAt: null },
         data: { status: 'Completed', updatedBy: userId },
       });
 
-      // 7. Create verification header for finance
+      // 8. Update driver realtime status back to Idle
+      if (suratJalan?.driverId) {
+        try {
+          // Check if driver has other active trips (other than this one)
+          const otherActiveTrips = await this.db.suratJalan.findFirst({
+            where: {
+              driverId: suratJalan.driverId,
+              segmentId: { not: segmentId },
+              status: { in: ['Draft', 'Active'] },
+              deletedAt: null,
+            },
+          });
+
+          // Only set to Idle if no other active trips
+          if (!otherActiveTrips) {
+            await this.db.driver.update({
+              where: { id: suratJalan.driverId },
+              data: {
+                realtimeStatus: RealtimeStatus.Idle,
+                updatedBy: userId,
+              },
+            });
+          }
+        } catch (driverUpdateError) {
+          // Log error but don't fail check-out
+          Logger.warn(
+            `Failed to update driver realtime status: ${driverUpdateError instanceof Error ? driverUpdateError.message : 'Unknown error'}`,
+            'ExecutionUseCase.checkOutSegment',
+          );
+        }
+      }
+
+      // 9. Create verification header for finance
       const updatedExecution = await this.repository.findSegmentExecutionBySegmentId(segmentId);
       if (updatedExecution) {
         const verifierId = userId; // TODO: Get finance user

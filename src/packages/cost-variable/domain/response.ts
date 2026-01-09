@@ -10,4 +10,3 @@ export interface ICostVariableListResponse {
     total: number;
   };
 }
-

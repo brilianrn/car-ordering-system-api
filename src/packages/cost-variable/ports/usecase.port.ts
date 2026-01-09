@@ -12,4 +12,3 @@ export interface CostVariableUsecasePort {
   delete: (id: number, userId: string) => Promise<IUsecaseResponse<void>>;
   restore: (id: number) => Promise<IUsecaseResponse<ICostVariable>>;
 }
-

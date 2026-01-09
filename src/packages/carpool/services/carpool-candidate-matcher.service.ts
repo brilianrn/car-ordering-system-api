@@ -240,6 +240,8 @@ export class CarpoolCandidateMatcherService {
 
   /**
    * Find candidate bookings from database for pre-submit booking
+   * Note: This should return the same candidates as findCandidateBookings,
+   * but without excluding a specific booking ID (since booking doesn't exist yet)
    */
   private async findCandidateBookingsPreSubmit(
     tempHostBooking: any,
@@ -263,6 +265,8 @@ export class CarpoolCandidateMatcherService {
     };
 
     // Exclude bookings from the same requester if provided
+    // This is optional - if not provided, will show all candidates including from same requester
+    // This matches the behavior of findCandidateBookings which doesn't filter by requesterId
     if (excludeRequesterId) {
       where.requesterId = { not: excludeRequesterId };
     }

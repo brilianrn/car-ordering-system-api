@@ -1,4 +1,4 @@
-import { bookingRoute, ERoutes, validationMessage } from '@/shared/constants';
+import { bookingRoute, ERoutes, tripRoute, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
 import {
@@ -208,6 +208,42 @@ export class BookingsController implements BookingsControllerPort {
         error instanceof Error ? error.message : 'Error in findOne',
         error instanceof Error ? error.stack : undefined,
         'BookingsController.findOne',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: (error instanceof Error ? error.message : undefined) || validationMessage()[500](),
+      });
+    }
+  }
+
+  @Get(`${tripRoute.base}${tripRoute.detail}`)
+  async findTripDetail(
+    @Param('id', ParseIntPipe) id: number,
+    @Headers('x-user-id') userId: string,
+    @Res() res: Response,
+  ) {
+    try {
+      const result = await this.usecase.findTripDetail(id, userId);
+
+      if (result?.error) {
+        const statusCode =
+          result.error.code === 404
+            ? HttpStatus.NOT_FOUND
+            : result.error.code === 403
+              ? HttpStatus.FORBIDDEN
+              : HttpStatus.BAD_REQUEST;
+        return response[statusCode](res, {
+          message: result?.error?.message || validationMessage()[500](),
+        });
+      }
+      return response[HttpStatus.OK](res, {
+        message: validationMessage('Trip')[200](),
+        data: result?.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findTripDetail',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsController.findTripDetail',
       );
       return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
         message: (error instanceof Error ? error.message : undefined) || validationMessage()[500](),

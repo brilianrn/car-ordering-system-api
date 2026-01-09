@@ -1,4 +1,14 @@
-import { IsBoolean, IsDateString, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Matches,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum CostCategory {
@@ -66,4 +76,3 @@ export class CreateCostVariableDto {
   @IsOptional()
   metadata?: any; // Additional configuration (e.g., vehicle type specific rates)
 }
-

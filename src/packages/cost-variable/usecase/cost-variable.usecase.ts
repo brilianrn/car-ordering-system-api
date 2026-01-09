@@ -157,7 +157,11 @@ export class CostVariableUseCase implements CostVariableUsecasePort {
     }
   };
 
-  update = async (id: number, updateDto: UpdateCostVariableDto, userId: string): Promise<IUsecaseResponse<ICostVariable>> => {
+  update = async (
+    id: number,
+    updateDto: UpdateCostVariableDto,
+    userId: string,
+  ): Promise<IUsecaseResponse<ICostVariable>> => {
     try {
       const existing = await this.repository.findById(id);
       if (!existing) {
@@ -300,7 +304,7 @@ export class CostVariableUseCase implements CostVariableUsecasePort {
   private async generateCostVariableCode(category: string): Promise<string | null> {
     try {
       const categoryPrefix = category.toUpperCase();
-      
+
       // Find all existing cost variables with same category prefix
       const allWithPrefix = await this.repository.findList({
         skip: 0,
@@ -351,4 +355,3 @@ export class CostVariableUseCase implements CostVariableUsecasePort {
     }
   }
 }
-

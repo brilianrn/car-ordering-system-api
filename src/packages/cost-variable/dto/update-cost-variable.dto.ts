@@ -45,4 +45,3 @@ export class UpdateCostVariableDto {
   @IsOptional()
   metadata?: any;
 }
-

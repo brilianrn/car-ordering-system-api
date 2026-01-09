@@ -24,4 +24,3 @@ export class QueryCostVariableDto {
   @Type(() => Boolean)
   isActive?: boolean; // Filter by active status
 }
-

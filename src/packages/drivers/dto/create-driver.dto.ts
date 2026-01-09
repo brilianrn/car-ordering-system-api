@@ -1,4 +1,4 @@
-import { DriverType, TransmissionType } from '@prisma/client';
+import { DriverType, RealtimeStatus, TransmissionType } from '@prisma/client';
 import {
   IsBoolean,
   IsDateString,
@@ -58,8 +58,8 @@ export class CreateDriverDto {
   isDedicated?: boolean;
 
   @IsOptional()
-  @IsString()
-  realtimeStatus?: string;
+  @IsEnum(RealtimeStatus)
+  realtimeStatus?: RealtimeStatus;
 
   @IsOptional()
   @IsInt()
