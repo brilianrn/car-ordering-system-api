@@ -4,4 +4,5 @@ export * from './error-handler';
 export * from './exeption-input';
 export * from './logger';
 export * from './notification.service';
+export * from './ocr.service';
 export * from './serialize';

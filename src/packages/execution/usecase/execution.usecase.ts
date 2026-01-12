@@ -1,4 +1,4 @@
-import { clientDb } from '@/shared/utils';
+import { clientDb, OCRService, S3Service } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
@@ -6,9 +6,12 @@ import { BookingStatus, Prisma, RealtimeStatus } from '@prisma/client';
 import { CheckInSegmentDto } from '../dto/check-in-segment.dto';
 import { CheckOutSegmentDto } from '../dto/check-out-segment.dto';
 import { UploadReceiptDto } from '../dto/upload-receipt.dto';
+import { UploadMultipleReceiptsDto } from '../dto/upload-multiple-receipts.dto';
 import { VerifyExecutionDto } from '../dto/verify-execution.dto';
+import { ScanReceiptDto } from '../dto/scan-receipt.dto';
 import { ExecutionRepositoryPort } from '../ports/repository.port';
 import { ExecutionUsecasePort } from '../ports/usecase.port';
+import { CostCategory } from '@/packages/cost-variable/dto/create-cost-variable.dto';
 
 @Injectable()
 export class ExecutionUseCase implements ExecutionUsecasePort {
@@ -17,6 +20,8 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
   constructor(
     @Inject('ExecutionRepositoryPort')
     private readonly repository: ExecutionRepositoryPort,
+    private readonly ocrService: OCRService,
+    private readonly s3Service: S3Service,
   ) {}
 
   checkInSegment = async (
@@ -251,6 +256,49 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
     }
   };
 
+  scanReceipt = async (executionId: number, dto: ScanReceiptDto): Promise<IUsecaseResponse<any>> => {
+    try {
+      // 1. Get execution by ID (for validation)
+      const execution = await this.repository.findSegmentExecutionById(executionId);
+      if (!execution) {
+        return {
+          error: {
+            message: `Execution with ID ${executionId} not found`,
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
+      }
+
+      // 2. Process OCR to extract data from receipt photo
+      const { finalCategory, finalAmountIdr, finalReceiptDate, ocrSnapshot } = await this.processReceiptOCR({
+        photoUrl: dto.photoUrl,
+      });
+
+      // 3. Return OCR result (for frontend to populate form)
+      return {
+        data: {
+          category: finalCategory || null,
+          amountIdr: finalAmountIdr || null,
+          receiptDate: finalReceiptDate || null,
+          confidence: ocrSnapshot?.confidence || null,
+          rawText: ocrSnapshot?.rawText || null,
+        },
+      };
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in scanReceipt',
+        error instanceof Error ? error.stack : undefined,
+        'ExecutionUseCase.scanReceipt',
+      );
+      return {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to scan receipt',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
+  };
+
   uploadReceipt = async (
     executionId: number,
     dto: UploadReceiptDto,
@@ -278,7 +326,36 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
         };
       }
 
-      // 3. Get or create verification header
+      // 3. Validate required fields (data should already be filled from OCR scan or manual input)
+
+      if (!dto.category) {
+        return {
+          error: {
+            message: 'Category is required.',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
+      }
+
+      if (!dto.amountIdr) {
+        return {
+          error: {
+            message: 'Amount is required.',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
+      }
+
+      if (!dto.receiptDate) {
+        return {
+          error: {
+            message: 'Receipt date is required.',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
+      }
+
+      // 5. Get or create verification header
       let verificationHeader = await this.repository.findVerificationHeaderByExecutionId(execution.id);
       if (!verificationHeader) {
         const verifierId = userId; // TODO: Get finance user
@@ -293,7 +370,7 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
       // 4. Generate duplicate hash
       const dupHash = dto.dupHash || `${dto.category}-${dto.amountIdr}-${dto.receiptDate}`;
 
-      // 5. Create receipt item
+      // 5. Create receipt item (no OCR snapshot since OCR was done separately during scan)
       const receiptItem = await this.repository.createReceiptItem({
         verification: { connect: { id: verificationHeader.id } },
         category: dto.category,
@@ -302,6 +379,7 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
         photoUrl: dto.photoUrl,
         fundingSource: dto.fundingSource,
         dupHash,
+        // OCR snapshot not stored during submit (was done during scan)
         createdBy: userId,
       });
 
@@ -315,6 +393,153 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
       return {
         error: {
           message: error instanceof Error ? error.message : 'Failed to upload receipt',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
+  };
+
+  uploadMultipleReceipts = async (
+    executionId: number,
+    dto: UploadMultipleReceiptsDto,
+    userId: string,
+  ): Promise<IUsecaseResponse<any>> => {
+    try {
+      // 1. Validate receipts array
+      if (!dto.receipts || dto.receipts.length === 0) {
+        return {
+          error: {
+            message: 'At least one receipt is required',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
+      }
+
+      // 2. Get execution by ID
+      const execution = await this.repository.findSegmentExecutionById(executionId);
+      if (!execution) {
+        return {
+          error: {
+            message: `Execution with ID ${executionId} not found`,
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
+      }
+
+      // 3. Validate execution is completed
+      if (execution.status !== 'Completed') {
+        return {
+          error: {
+            message: 'Execution is not completed yet',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
+      }
+
+      // 4. Get or create verification header
+      let verificationHeader = await this.repository.findVerificationHeaderByExecutionId(execution.id);
+      if (!verificationHeader) {
+        const verifierId = userId; // TODO: Get finance user
+        verificationHeader = await this.repository.createVerificationHeader({
+          segmentExecution: { connect: { id: execution.id } },
+          verifyStatus: 'IN_REVIEW',
+          verifierId,
+          createdBy: userId,
+        });
+      }
+
+      // 5. Process each receipt with OCR
+      const receiptItems: any[] = [];
+      const errors: Array<{ index: number; error: string; receipt: any }> = [];
+
+      for (let i = 0; i < dto.receipts.length; i++) {
+        const receiptDto = dto.receipts[i];
+        try {
+          // Validate required fields (data should already be filled from OCR scan or manual input)
+          if (!receiptDto.category) {
+            throw new Error('Category is required.');
+          }
+          if (!receiptDto.amountIdr) {
+            throw new Error('Amount is required.');
+          }
+          if (!receiptDto.receiptDate) {
+            throw new Error('Receipt date is required.');
+          }
+
+          // Generate duplicate hash
+          const dupHash =
+            receiptDto.dupHash || `${receiptDto.category}-${receiptDto.amountIdr}-${receiptDto.receiptDate}`;
+
+          // Create receipt item (no OCR snapshot since OCR was done separately during scan)
+          const receiptItem = await this.repository.createReceiptItem({
+            verification: { connect: { id: verificationHeader.id } },
+            category: receiptDto.category,
+            amountIdr: receiptDto.amountIdr,
+            receiptDate: new Date(receiptDto.receiptDate),
+            photoUrl: receiptDto.photoUrl,
+            fundingSource: receiptDto.fundingSource,
+            dupHash,
+            // OCR snapshot not stored during submit (was done during scan)
+            createdBy: userId,
+          });
+
+          receiptItems.push(receiptItem);
+        } catch (error) {
+          errors.push({
+            index: i,
+            error: error instanceof Error ? error.message : 'Failed to create receipt item',
+            receipt: receiptDto,
+          });
+        }
+      }
+
+      // 6. Return response
+      if (receiptItems.length === 0) {
+        // All failed
+        return {
+          error: {
+            message: 'All receipts failed to upload',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
+      } else if (errors.length > 0) {
+        // Partial success
+        return {
+          data: {
+            verificationHeaderId: verificationHeader.id,
+            totalReceipts: dto.receipts.length,
+            successCount: receiptItems.length,
+            failedCount: errors.length,
+            receipts: [
+              ...receiptItems.map((item) => ({ status: 'success' as const, data: item })),
+              ...errors.map((err) => ({
+                index: err.index,
+                status: 'failed' as const,
+                error: err.error,
+                receipt: err.receipt,
+              })),
+            ],
+          },
+        };
+      } else {
+        // All success
+        return {
+          data: {
+            verificationHeaderId: verificationHeader.id,
+            totalReceipts: receiptItems.length,
+            receipts: receiptItems,
+          },
+        };
+      }
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in uploadMultipleReceipts',
+        error instanceof Error ? error.stack : undefined,
+        'ExecutionUseCase.uploadMultipleReceipts',
+      );
+      return {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to upload receipts',
           code: HttpStatus.INTERNAL_SERVER_ERROR,
         },
       };
@@ -403,4 +628,91 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
       };
     }
   };
+
+  /**
+   * Helper method to process OCR for a receipt
+   * Returns final values (from DTO or OCR) and OCR snapshot
+   */
+  private async processReceiptOCR(receiptDto: {
+    photoUrl: string;
+    category?: CostCategory;
+    amountIdr?: number;
+    receiptDate?: string;
+  }): Promise<{
+    finalCategory?: CostCategory;
+    finalAmountIdr?: number;
+    finalReceiptDate?: string;
+    ocrSnapshot: any;
+  }> {
+    let ocrSnapshot: any = null;
+    let parsedData: {
+      category?: CostCategory;
+      amountIdr?: number;
+      receiptDate?: string;
+    } = {};
+
+    try {
+      // Get image URL for OCR (use presigned URL if it's an S3 key)
+      let imageUrl = receiptDto.photoUrl;
+
+      // If photoUrl is an S3 key (not a full URL), get presigned URL
+      if (!receiptDto.photoUrl.startsWith('http') && !receiptDto.photoUrl.startsWith('data:')) {
+        try {
+          imageUrl = await this.s3Service.getPresignedUrl(receiptDto.photoUrl, 300); // 5 minutes expiry
+        } catch (s3Error) {
+          Logger.error(
+            `Failed to get presigned URL for OCR: ${s3Error instanceof Error ? s3Error.message : 'Unknown error'}`,
+            undefined,
+            'ExecutionUseCase.processReceiptOCR - OCR presigned URL',
+          );
+          // Continue with original photoUrl, might be base64 or already a URL
+        }
+      }
+
+      // Perform OCR
+      const ocrResult = await this.ocrService.extractText(imageUrl);
+      const parsed = this.ocrService.parseReceiptData(ocrResult.text, ocrResult.confidence);
+
+      ocrSnapshot = {
+        rawText: parsed.rawText,
+        confidence: parsed.confidence,
+        extracted: {
+          category: parsed.category,
+          amountIdr: parsed.amountIdr,
+          receiptDate: parsed.receiptDate,
+        },
+      };
+
+      // Auto-fill missing fields from OCR
+      if (!receiptDto.category && parsed.category) {
+        parsedData.category = parsed.category;
+      }
+      if (!receiptDto.amountIdr && parsed.amountIdr) {
+        parsedData.amountIdr = parsed.amountIdr;
+      }
+      if (!receiptDto.receiptDate && parsed.receiptDate) {
+        parsedData.receiptDate = parsed.receiptDate;
+      }
+
+      Logger.info(
+        `OCR completed for receipt. Confidence: ${ocrResult.confidence}%. Extracted: ${JSON.stringify(parsedData)}`,
+        'ExecutionUseCase.processReceiptOCR - OCR',
+      );
+    } catch (ocrError) {
+      // OCR failure should not block receipt upload
+      Logger.error(
+        `OCR processing failed: ${ocrError instanceof Error ? ocrError.message : 'Unknown error'}`,
+        ocrError instanceof Error ? ocrError.stack : undefined,
+        'ExecutionUseCase.processReceiptOCR - OCR',
+      );
+      // Continue without OCR data
+    }
+
+    return {
+      finalCategory: receiptDto.category || parsedData.category,
+      finalAmountIdr: receiptDto.amountIdr || parsedData.amountIdr,
+      finalReceiptDate: receiptDto.receiptDate || parsedData.receiptDate,
+      ocrSnapshot,
+    };
+  }
 }

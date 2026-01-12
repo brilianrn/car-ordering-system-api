@@ -10,6 +10,8 @@ import { ApprovalModule } from './approval.module';
 import { AssignmentModule } from './assignment.module';
 import { ExecutionModule } from './execution.module';
 import { CostVariableModule } from './cost-variable.module';
+import { CategoryModule } from '@/packages/category/category.module';
+import { ParamSetModule } from '@/packages/param-set/param-set.module';
 
 @Module({
   imports: [
@@ -27,6 +29,8 @@ import { CostVariableModule } from './cost-variable.module';
     AssignmentModule,
     ExecutionModule,
     CostVariableModule,
+    CategoryModule,
+    ParamSetModule,
   ],
 })
 export class AppModule {}

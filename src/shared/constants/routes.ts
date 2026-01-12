@@ -11,6 +11,8 @@ export enum ERoutes {
   UPLOAD = `${EPrefix.V1}/upload`,
   BOOKINGS = `${EPrefix.V1}/booking`,
   COST_VARIABLE = `${EPrefix.V1}/cost-variable`,
+  CATEGORY = `${EPrefix.V1}/category`,
+  PARAM_SET = `${EPrefix.V1}/params`,
 }
 
 export const authRoute = {
@@ -79,7 +81,9 @@ export const executionRoute = {
   base: '/execution',
   checkIn: '/segment/:segmentId/check-in',
   checkOut: '/segment/:segmentId/check-out',
+  scanReceipt: '/:executionId/receipt/scan',
   uploadReceipt: '/:executionId/receipt',
+  uploadMultipleReceipts: '/:executionId/receipts',
   verifyExecution: '/:executionId/verify',
 };
 
@@ -90,4 +94,15 @@ export const costVariableRoute = {
   update: '/:id',
   delete: '/:id',
   restore: '/:id/restore',
+  lov: '/lov', // List of Values for dropdown (active only)
+};
+
+export const paramSetRoute = {
+  base: '',
+  createDraft: '/draft',
+  findActive: '/active',
+  list: '',
+  findOne: '/:id',
+  publish: '/:id/publish',
+  rollback: '/:id/rollback',
 };

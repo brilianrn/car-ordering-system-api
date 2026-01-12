@@ -11,4 +11,5 @@ export interface CostVariableUsecasePort {
   update: (id: number, updateDto: UpdateCostVariableDto, userId: string) => Promise<IUsecaseResponse<ICostVariable>>;
   delete: (id: number, userId: string) => Promise<IUsecaseResponse<void>>;
   restore: (id: number) => Promise<IUsecaseResponse<ICostVariable>>;
+  getLov: () => Promise<IUsecaseResponse<any[]>>;
 }

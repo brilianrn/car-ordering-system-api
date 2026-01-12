@@ -5,6 +5,8 @@ import { Body, Controller, Headers, HttpStatus, Inject, Param, ParseIntPipe, Pat
 import type { Response } from 'express';
 import { CheckInSegmentDto } from '../dto/check-in-segment.dto';
 import { CheckOutSegmentDto } from '../dto/check-out-segment.dto';
+import { ScanReceiptDto } from '../dto/scan-receipt.dto';
+import { UploadMultipleReceiptsDto } from '../dto/upload-multiple-receipts.dto';
 import { UploadReceiptDto } from '../dto/upload-receipt.dto';
 import { VerifyExecutionDto } from '../dto/verify-execution.dto';
 import { ExecutionUsecasePort } from '../ports/usecase.port';
@@ -92,6 +94,43 @@ export class ExecutionController {
     }
   }
 
+  @Post(executionRoute.scanReceipt)
+  async scanReceipt(
+    @Param('executionId', ParseIntPipe) executionId: number,
+    @Body() dto: ScanReceiptDto,
+    @Res() res: Response,
+  ) {
+    try {
+      const result = await this.usecase.scanReceipt(executionId, dto);
+
+      if (result?.error) {
+        const statusCode =
+          result.error.code === 404
+            ? HttpStatus.NOT_FOUND
+            : result.error.code === 403
+              ? HttpStatus.FORBIDDEN
+              : HttpStatus.BAD_REQUEST;
+        return response[statusCode](res, {
+          message: result?.error?.message || validationMessage()[500](),
+        });
+      }
+
+      return response[HttpStatus.OK](res, {
+        message: 'Receipt scanned successfully',
+        data: result?.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in scanReceipt',
+        error instanceof Error ? error.stack : undefined,
+        'ExecutionController.scanReceipt',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: error?.message || validationMessage()[500](),
+      });
+    }
+  }
+
   @Post(executionRoute.uploadReceipt)
   async uploadReceipt(
     @Param('executionId', ParseIntPipe) executionId: number,
@@ -123,6 +162,52 @@ export class ExecutionController {
         error instanceof Error ? error.message : 'Error in uploadReceipt',
         error instanceof Error ? error.stack : undefined,
         'ExecutionController.uploadReceipt',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: error?.message || validationMessage()[500](),
+      });
+    }
+  }
+
+  @Post(executionRoute.uploadMultipleReceipts)
+  async uploadMultipleReceipts(
+    @Param('executionId', ParseIntPipe) executionId: number,
+    @Body() dto: UploadMultipleReceiptsDto,
+    @Headers('x-user-id') userId: string,
+    @Res() res: Response,
+  ) {
+    try {
+      const result = await this.usecase.uploadMultipleReceipts(executionId, dto, userId);
+
+      if (result?.error) {
+        const statusCode =
+          result.error.code === 404
+            ? HttpStatus.NOT_FOUND
+            : result.error.code === 403
+              ? HttpStatus.FORBIDDEN
+              : HttpStatus.BAD_REQUEST;
+        return response[statusCode](res, {
+          message: result?.error?.message || validationMessage()[500](),
+        });
+      }
+
+      // Check if partial success (has failedCount)
+      if (result?.data?.failedCount && result.data.failedCount > 0) {
+        return response[207](res, {
+          message: 'Some receipts failed to upload',
+          data: result?.data,
+        });
+      }
+
+      return response[HttpStatus.CREATED](res, {
+        message: validationMessage('Receipts')[201](),
+        data: result?.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in uploadMultipleReceipts',
+        error instanceof Error ? error.stack : undefined,
+        'ExecutionController.uploadMultipleReceipts',
       );
       return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
         message: error?.message || validationMessage()[500](),

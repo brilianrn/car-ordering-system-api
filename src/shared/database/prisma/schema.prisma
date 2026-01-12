@@ -137,57 +137,60 @@ model Driver {
 }
 
 model Category {
-  id           Int       @id @default(autoincrement())
-  code         String    @unique @map("code")
-  name         String    @unique @map("name")
-  status       String    @default("Active")
-  displayOrder Int       @map("display_order")
-  scope        String    @default("Global")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  createdBy    String    @map("created_by")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-  updatedBy    String?   @map("updated_by")
-  deletedAt    DateTime? @map("deleted_at")
-  deletedBy    String?   @map("deleted_by")
+  id           Int            @id @default(autoincrement())
+  code         String         @unique @map("code") // 2-12 karakter, UPPERCASE, tanpa spasi
+  name         String         @unique @map("name") // minimal 3 karakter, case-insensitive unique
+  status       CategoryStatus @default(ACTIVE) @map("status")
+  displayOrder Int            @default(0) @map("display_order") // 0-999
+  scope        CategoryScope  @default(GLOBAL) @map("scope")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  createdBy    String         @map("created_by")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  updatedBy    String?        @map("updated_by")
+  deletedAt    DateTime?       @map("deleted_at")
+  deletedBy    String?        @map("deleted_by")
   bookings     Booking[]
 
   @@map("category")
 }
 
 model ParamSet {
-  id            Int         @id @default(autoincrement())
-  version       Int         @unique
-  status        String      @default("Draft")
-  effectiveFrom DateTime    @map("effective_from")
-  environment   String      @default("UAT") @map("environment")
-  publishedBy   String      @map("published_by")
-  createdAt     DateTime    @default(now()) @map("created_at")
-  createdBy     String      @map("created_by")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
-  updatedBy     String?     @map("updated_by")
-  deletedAt     DateTime?   @map("deleted_at")
-  deletedBy     String?     @map("deleted_by")
+  id            String            @id @default(uuid())
+  version       Int               @unique // Auto-increment setiap publish
+  status        ParamSetStatus     @default(DRAFT) @map("status")
+  effectiveFrom DateTime           @map("effective_from") // Wajib, >= Now
+  effectiveTo   DateTime?          @map("effective_to") // Opsional
+  environment   ParamEnvironment   @default(UAT) @map("environment")
+  publishedBy   String?           @map("published_by") // User ID yang melakukan publish
+  publishedAt   DateTime?         @map("published_at")
+  notes         String?           @map("notes") // Alasan perubahan
+  createdAt     DateTime          @default(now()) @map("created_at")
+  createdBy     String            @map("created_by") // User ID yang membuat Draft
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  updatedBy     String?            @map("updated_by")
+  deletedAt     DateTime?         @map("deleted_at")
+  deletedBy     String?           @map("deleted_by")
   items         ParamItem[]
 
   @@map("param_set")
 }
 
 model ParamItem {
-  id         Int       @id @default(autoincrement())
-  paramSetId Int       @map("param_set_id")
-  name       String    @map("name")
-  group      String    @map("group")
-  value      String
-  unit       String?
-  scope      String    @default("Global")
-  notes      String?
-  createdAt  DateTime  @default(now()) @map("created_at")
-  createdBy  String    @map("created_by")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
-  updatedBy  String?   @map("updated_by")
-  deletedAt  DateTime? @map("deleted_at")
-  deletedBy  String?   @map("deleted_by")
-  paramSet   ParamSet  @relation(fields: [paramSetId], references: [id])
+  id         Int          @id @default(autoincrement())
+  paramSetId String       @map("param_set_id")
+  name       ParamName    @map("name") // Nama parameter (Grace_No_Show, Petty_Cash_Initial, dll)
+  group      ParamGroup   @map("group") // Kelompok (No-Show, PettyCash, Tracking, Kategori)
+  value      String       // Nilai aktif parameter
+  unit       String?      // Menit, IDR, %, dll
+  scope      ParamScope   @default(GLOBAL) @map("scope")
+  notes      String?      // Alasan perubahan
+  createdAt  DateTime     @default(now()) @map("created_at")
+  createdBy  String       @map("created_by")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  updatedBy  String?      @map("updated_by")
+  deletedAt  DateTime?    @map("deleted_at")
+  deletedBy  String?      @map("deleted_by")
+  paramSet   ParamSet     @relation(fields: [paramSetId], references: [id], onDelete: Cascade)
 
   @@map("param_item")
 }
@@ -588,6 +591,91 @@ enum VerifyStatus {
   BLOCKED
 }
 
+enum CategoryStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CategoryScope {
+  GLOBAL
+  PLANT
+  DIVISI
+}
+
+enum CostSetStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+enum CostItemCategory {
+  FUEL_PERTALITE
+  FUEL_SOLAR
+  TOLL_PER_KM
+  PARKING_HOURLY
+  PARKING_CAP
+  FALLBACK_KM_PER_L
+  MARKUP_PERCENT
+  ROUNDING
+}
+
+enum CostItemUnit {
+  IDR_PER_L
+  IDR_PER_KM
+  IDR_PER_HOUR
+  PERCENT
+  KM_PER_L
+  IDR
+}
+
+enum CostSetScope {
+  GLOBAL
+  PLANT
+  DIVISI
+}
+
+enum CostSetEnvironment {
+  UAT
+  PRODUCTION
+}
+
+enum ParamSetStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+enum ParamGroup {
+  NO_SHOW
+  PETTY_CASH
+  TRACKING
+  KATEGORI
+  CARPOOL
+}
+
+enum ParamName {
+  GRACE_NO_SHOW
+  PETTY_CASH_INITIAL
+  TRACKING_INTERVAL
+  ACTIVE_CATEGORIES
+  TIME_WINDOW_MINUTES
+  ROUTE_SIMILARITY_THRESHOLD
+  MAX_DETOUR_PERCENTAGE
+  DEFAULT_INVITE_EXPIRY_MINUTES
+  MAX_VEHICLE_SEAT_CAPACITY
+}
+
+enum ParamScope {
+  GLOBAL
+  PLANT
+  DIVISI
+}
+
+enum ParamEnvironment {
+  UAT
+  PRODUCTION
+}
+
 enum CarpoolConsentStatus {
   PENDING
   APPROVED
@@ -626,4 +714,47 @@ model CostVariable {
   deletedBy   String?   @map("deleted_by")
 
   @@map("cost_variable")
+}
+
+model CostSet {
+  id            Int                @id @default(autoincrement())
+  version       Int                @unique @map("version") // Auto-increment version
+  status        CostSetStatus      @default(DRAFT) @map("status")
+  effectiveFrom DateTime            @map("effective_from")
+  effectiveTo   DateTime?          @map("effective_to")
+  environment   CostSetEnvironment  @default(UAT) @map("environment")
+  scope         CostSetScope        @default(GLOBAL) @map("scope")
+  createdBy     String             @map("created_by")
+  reviewedBy    String?            @map("reviewed_by") // Reviewer untuk Two-Person Rule
+  reviewedAt    DateTime?          @map("reviewed_at")
+  notes         String?            @map("notes") // Alasan perubahan
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+  updatedBy     String?            @map("updated_by")
+  deletedAt     DateTime?          @map("deleted_at")
+  deletedBy     String?            @map("deleted_by")
+  items         CostItem[]
+
+  @@map("cost_set")
+}
+
+model CostItem {
+  id          Int              @id @default(autoincrement())
+  costSetId   Int              @map("cost_set_id")
+  category    CostItemCategory @map("category")
+  name        String           @map("name") // e.g., "Pertalite", "Solar", "Per Km", "Hourly", "Cap", "KM/L per tipe unit", "Markup %", "Pembulatan"
+  value       Float            @map("value") // Numeric value
+  unit        CostItemUnit     @map("unit") // IDR/L, IDR/km, IDR/jam, %, KM/L, IDR
+  scope       CostSetScope?    @map("scope") // Optional: Global, Plant, atau Divisi
+  vehicleType String?          @map("vehicle_type") // Optional: untuk vehicle type specific rates
+  roundingStep Float?          @map("rounding_step") // Optional: step untuk pembulatan (misal: 1000 untuk pembulatan ke ribuan)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  createdBy   String          @map("created_by")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  updatedBy   String?         @map("updated_by")
+  deletedAt   DateTime?       @map("deleted_at")
+  deletedBy   String?         @map("deleted_by")
+  costSet     CostSet         @relation(fields: [costSetId], references: [id])
+
+  @@map("cost_item")
 }

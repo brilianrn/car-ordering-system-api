@@ -128,6 +128,41 @@ export class S3Service {
       throw error;
     }
   }
+
+  /**
+   * Download file from S3 and return as Buffer
+   * @param s3Key - The S3 key (path) of the file
+   * @returns Buffer containing file data
+   */
+  async downloadFile(s3Key: string): Promise<Buffer> {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: this.bucketName,
+        Key: s3Key,
+      });
+
+      const response = await this.s3Client.send(command);
+
+      if (!response.Body) {
+        throw new Error('File not found or empty');
+      }
+
+      // Convert stream to buffer
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of response.Body as any) {
+        chunks.push(chunk);
+      }
+
+      return Buffer.concat(chunks);
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in downloadFile',
+        error instanceof Error ? error.stack : undefined,
+        'S3Service.downloadFile',
+      );
+      throw error;
+    }
+  }
 }
 
 // TODO: FOR ENV NEWUS

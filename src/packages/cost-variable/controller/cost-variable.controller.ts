@@ -84,6 +84,32 @@ export class CostVariableController implements CostVariableControllerPort {
     }
   }
 
+  @Get(costVariableRoute.lov)
+  async getLov(@Res() res: Response) {
+    try {
+      const result = await this.costVariableUseCase.getLov();
+
+      if (result?.error) {
+        return response[HttpStatus.BAD_REQUEST](res, {
+          message: result?.error?.message || validationMessage()[500](),
+        });
+      }
+      return response[HttpStatus.OK](res, {
+        message: validationMessage()[200](),
+        data: result?.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in getLov',
+        error instanceof Error ? error.stack : undefined,
+        'CostVariableController.getLov',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: (error instanceof Error ? error.message : undefined) || validationMessage()[500](),
+      });
+    }
+  }
+
   @Get(costVariableRoute.findOne)
   async findOne(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
     try {

@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
 import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
+import { Injectable } from '@nestjs/common';
+import { ParamGroup, ParamSetStatus } from '@prisma/client';
 
 export interface CarpoolConfig {
   timeWindowMinutes: number; // ±X minutes from planned start (default: 30)
@@ -30,7 +31,7 @@ export class CarpoolConfigService {
       // Get active ParamSet
       const activeParamSet = await this.db.paramSet.findFirst({
         where: {
-          status: 'Published',
+          status: ParamSetStatus.PUBLISHED,
           deletedAt: null,
         },
         orderBy: {
@@ -39,7 +40,7 @@ export class CarpoolConfigService {
         include: {
           items: {
             where: {
-              group: 'CARPOOL',
+              group: ParamGroup.CARPOOL,
               deletedAt: null,
             },
           },
@@ -56,7 +57,9 @@ export class CarpoolConfigService {
       // Parse config values from ParamItem
       for (const item of activeParamSet.items) {
         const value = parseFloat(item.value);
-        switch (item.name) {
+        // Using string comparison since Prisma client needs to be regenerated after enum update
+        const paramName = item.name as string;
+        switch (paramName) {
           case 'TIME_WINDOW_MINUTES':
             config.timeWindowMinutes = value || this.defaultConfig.timeWindowMinutes;
             break;

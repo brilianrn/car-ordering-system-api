@@ -33,16 +33,23 @@ export class CostVariableUseCase implements CostVariableUsecasePort {
         code = createDto.code.toUpperCase();
       } else {
         // Auto-generate unique code
+        Logger.debug(`Generating code for category: ${createDto.category}`, 'CostVariableUseCase.create');
         const generatedCode = await this.generateCostVariableCode(createDto.category);
         if (!generatedCode) {
+          Logger.error(
+            `Failed to generate code for category: ${createDto.category}`,
+            undefined,
+            'CostVariableUseCase.create',
+          );
           return {
             error: {
-              message: 'Failed to generate cost variable code',
+              message: `Failed to generate cost variable code for category ${createDto.category}. Please try again or provide a code manually.`,
               code: HttpStatus.INTERNAL_SERVER_ERROR,
             },
           };
         }
         code = generatedCode;
+        Logger.debug(`Generated code: ${code}`, 'CostVariableUseCase.create');
       }
 
       const costVariable = await this.repository.create({
@@ -297,6 +304,64 @@ export class CostVariableUseCase implements CostVariableUsecasePort {
   };
 
   /**
+   * Get List of Values (LOV) for Cost Variable categories
+   * Returns only active cost variables grouped by category
+   * Used for dropdown selection in receipt upload
+   */
+  getLov = async (): Promise<IUsecaseResponse<any[]>> => {
+    try {
+      const today = new Date();
+
+      // Get all active cost variables that are currently effective
+      const costVariables = await this.repository.findList({
+        skip: 0,
+        take: 1000, // Large limit for LOV
+        where: {
+          isActive: true,
+          effectiveFrom: {
+            lte: today, // Effective from <= today
+          },
+          OR: [
+            { effectiveTo: null }, // No end date
+            { effectiveTo: { gte: today } }, // End date >= today
+          ],
+        },
+      });
+
+      // Get unique categories and format for LOV
+      const uniqueCategories = Array.from(new Set(costVariables.map((cv) => cv.category))).map((category) => {
+        // Format label: "FUEL" -> "Fuel", "VEHICLE_MAINTENANCE" -> "Vehicle Maintenance"
+        const label = category
+          .split('_')
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+          .join(' ');
+
+        return {
+          value: category,
+          label: label,
+        };
+      });
+
+      // Sort by label alphabetically
+      uniqueCategories.sort((a, b) => a.label.localeCompare(b.label));
+
+      return { data: uniqueCategories };
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in getLov',
+        error instanceof Error ? error.stack : undefined,
+        'CostVariableUseCase.getLov',
+      );
+      return {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to fetch cost variable LOV',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
+  };
+
+  /**
    * Generate unique cost variable code based on category
    * Format: {CATEGORY}_{SEQUENCE}
    * Example: FUEL_001, TOLL_001, PARKING_001
@@ -304,50 +369,88 @@ export class CostVariableUseCase implements CostVariableUsecasePort {
   private async generateCostVariableCode(category: string): Promise<string | null> {
     try {
       const categoryPrefix = category.toUpperCase();
+      const prefixPattern = `${categoryPrefix}_`;
 
       // Find all existing cost variables with same category prefix
-      const allWithPrefix = await this.repository.findList({
-        skip: 0,
-        take: 10000,
-        where: {
-          code: {
-            startsWith: `${categoryPrefix}_`,
+      let allWithPrefix: any[] = [];
+      try {
+        allWithPrefix = await this.repository.findList({
+          skip: 0,
+          take: 10000,
+          where: {
+            code: {
+              startsWith: prefixPattern,
+            },
           },
-        },
-      });
+        });
+      } catch (queryError) {
+        Logger.error(
+          `Error querying cost variables with prefix ${categoryPrefix}: ${queryError instanceof Error ? queryError.message : 'Unknown error'}`,
+          queryError instanceof Error ? queryError.stack : undefined,
+          'CostVariableUseCase.generateCostVariableCode',
+        );
+        // Continue with empty array if query fails - will start from 001
+        allWithPrefix = [];
+      }
 
       let maxSequence = 0;
-      for (const costVar of allWithPrefix) {
-        const code = costVar.code;
-        // Extract numeric part after "{CATEGORY}_"
-        const numericPart = code.substring(categoryPrefix.length + 1);
-        const sequence = parseInt(numericPart, 10);
-        if (!isNaN(sequence) && sequence > maxSequence) {
-          maxSequence = sequence;
+      if (allWithPrefix && allWithPrefix.length > 0) {
+        for (const costVar of allWithPrefix) {
+          if (!costVar?.code) continue;
+
+          const code = String(costVar.code).toUpperCase().trim();
+          // Check if code matches pattern: {CATEGORY}_{NUMBER}
+          if (!code.startsWith(prefixPattern)) continue;
+
+          // Extract numeric part after "{CATEGORY}_"
+          const numericPart = code.substring(prefixPattern.length);
+          // Only consider if numeric part is purely numeric (matches pattern like "001", "123")
+          if (/^\d+$/.test(numericPart)) {
+            const sequence = parseInt(numericPart, 10);
+            if (!isNaN(sequence) && sequence > maxSequence) {
+              maxSequence = sequence;
+            }
+          }
         }
       }
 
+      // Generate new code starting from maxSequence + 1
+      // If no existing codes found, start from 001
       const maxAttempts = 100;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const newSequence = maxSequence + 1 + attempt;
         const sequenceStr = newSequence.toString().padStart(3, '0');
         const generatedCode = `${categoryPrefix}_${sequenceStr}`;
 
-        const duplicateCheck = await this.repository.findByCode(generatedCode);
-        if (!duplicateCheck) {
-          return generatedCode;
+        // Check for duplicate (including deleted records for uniqueness)
+        try {
+          const duplicateCheck = await this.repository.findByCode(generatedCode, true); // Check including deleted
+          if (!duplicateCheck) {
+            Logger.debug(
+              `Generated unique code: ${generatedCode} for category ${categoryPrefix}`,
+              'CostVariableUseCase.generateCostVariableCode',
+            );
+            return generatedCode;
+          }
+        } catch (checkError) {
+          Logger.error(
+            `Error checking duplicate code ${generatedCode}: ${checkError instanceof Error ? checkError.message : 'Unknown error'}`,
+            checkError instanceof Error ? checkError.stack : undefined,
+            'CostVariableUseCase.generateCostVariableCode',
+          );
+          // Continue to next attempt if check fails
         }
       }
 
       Logger.error(
-        'Failed to generate unique cost variable code after max attempts',
+        `Failed to generate unique cost variable code after ${maxAttempts} attempts for category ${categoryPrefix}. Last attempted: ${categoryPrefix}_${(maxSequence + maxAttempts).toString().padStart(3, '0')}`,
         undefined,
         'CostVariableUseCase.generateCostVariableCode',
       );
       return null;
     } catch (error) {
       Logger.error(
-        error instanceof Error ? error.message : 'Error in generateCostVariableCode',
+        `Error in generateCostVariableCode for category ${category}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         error instanceof Error ? error.stack : undefined,
         'CostVariableUseCase.generateCostVariableCode',
       );

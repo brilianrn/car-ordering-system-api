@@ -17,4 +17,5 @@ export interface CostVariableControllerPort {
   ): Promise<Response<ResponseREST<ICostVariable>>>;
   delete(id: number, userId: string, res: Response): Promise<Response<ResponseREST<void>>>;
   restore(id: number, res: Response): Promise<Response<ResponseREST<ICostVariable>>>;
+  getLov(res: Response): Promise<Response<ResponseREST<any[]>>>;
 }
