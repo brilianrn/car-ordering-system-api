@@ -64,7 +64,12 @@ export class UpdateBookingDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  passengerNames?: string[]; // Array of passenger names
+  passengerIds?: string[]; // Array of employee IDs (employeeId strings) - preferred
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  passengerNames?: string[]; // Array of passenger names (for backward compatibility, will be auto-populated from passengerIds)
 
   @IsOptional()
   @IsEnum(ServiceType)

@@ -58,6 +58,10 @@ export class CreateDriverDto {
   isDedicated?: boolean;
 
   @IsOptional()
+  @IsInt()
+  dedicatedVehicleId?: number; // Required if isDedicated is true
+
+  @IsOptional()
   @IsEnum(RealtimeStatus)
   realtimeStatus?: RealtimeStatus;
 

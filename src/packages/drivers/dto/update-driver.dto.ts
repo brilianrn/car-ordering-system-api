@@ -36,6 +36,10 @@ export class UpdateDriverDto {
   isDedicated?: boolean;
 
   @IsOptional()
+  @IsInt()
+  dedicatedVehicleId?: number; // Required if isDedicated is true
+
+  @IsOptional()
   @IsEnum(DriverType)
   driverType?: DriverType;
 

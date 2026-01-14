@@ -75,11 +75,22 @@ export interface IBookingIncludeRelations {
  * Base Booking Include Relations (without vehicle/assignment)
  * Used as fallback when Prisma client doesn't support vehicle relation yet
  */
-export const BASE_BOOKING_INCLUDE: IBookingIncludeRelations = {
+export const BASE_BOOKING_INCLUDE: Prisma.BookingInclude = {
   category: true,
   segments: {
     where: { deletedAt: null },
     orderBy: { segmentNo: 'asc' },
+    include: {
+      execution: {
+        include: {
+          verification: {
+            include: {
+              receiptItems: true,
+            },
+          },
+        },
+      },
+    },
   },
   approvalHeader: {
     include: {
@@ -97,37 +108,6 @@ export const BASE_BOOKING_INCLUDE: IBookingIncludeRelations = {
       employeeId: true,
       fullName: true,
       email: true,
-    },
-  },
-};
-
-/**
- * Default Booking Include Relations
- * Standard relations to include when fetching booking details
- * Includes vehicle and assignment relations (requires Prisma client to be generated)
- */
-export const DEFAULT_BOOKING_INCLUDE: IBookingIncludeRelations = {
-  ...BASE_BOOKING_INCLUDE,
-  vehicle: {
-    include: {
-      images: {
-        select: {
-          asset: true,
-        },
-      },
-    },
-  },
-  assignment: {
-    include: {
-      vehicleChosen: {
-        include: {
-          images: {
-            select: {
-              asset: true,
-            },
-          },
-        },
-      },
     },
   },
 };

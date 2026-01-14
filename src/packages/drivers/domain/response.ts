@@ -6,6 +6,12 @@ export interface IDriver extends Driver {
     name: string;
     contactPic?: string | null;
   } | null;
+  dedicatedVehicle?: {
+    id: number;
+    vehicleCode: string;
+    licensePlate: string;
+    brandModel: string;
+  } | null;
   isSimExpired?: boolean;
 }
 

@@ -7,7 +7,14 @@ import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { BookingStatus, Prisma, ServiceType } from '@prisma/client';
 import { IBookingWithRelations } from '../domain/entities';
 import { transformBookingWithPresignedUrls } from '../domain/helpers/presigned-url.helper';
-import { IAvailableVehicle, IBooking, IBookingListResponse, ITripDetail } from '../domain/response';
+import {
+  IAvailableVehicle,
+  IBooking,
+  IBookingListResponse,
+  IReceiptItem,
+  IReceiptSummary,
+  ITripDetail,
+} from '../domain/response';
 import { CreateBookingDto } from '../dto/create-booking.dto';
 import { QueryAvailableVehiclesDto } from '../dto/query-available-vehicles.dto';
 import { QueryBookingDto } from '../dto/query-booking.dto';
@@ -115,6 +122,64 @@ export class BookingsUseCase implements BookingsUsecasePort {
       const assignedAt = new Date(); // Current date/time
       const slaDueAt = new Date(assignedAt.getTime() + 24 * 60 * 60 * 1000); // Exactly 24 hours from now
 
+      // Handle purpose and additionalNotes
+      // If additionalNotes is provided, append it to purpose
+      let finalPurpose = createDto.purpose;
+      if (createDto.additionalNotes) {
+        finalPurpose = `${createDto.purpose}\n\nAdditional Notes: ${createDto.additionalNotes}`;
+      }
+
+      // Handle passengerIds and passengerNames
+      let passengerIds: string[] | undefined;
+      let passengerNames: string[] | undefined;
+
+      if (createDto.passengerIds && createDto.passengerIds.length > 0) {
+        // If passengerIds provided, fetch employee names
+        passengerIds = createDto.passengerIds;
+        try {
+          const employees = await this.db.employee.findMany({
+            where: {
+              employeeId: { in: createDto.passengerIds },
+              deletedAt: null,
+            },
+            select: {
+              employeeId: true,
+              fullName: true,
+            },
+          });
+
+          // Validate all passengerIds exist
+          const foundIds = employees.map((e) => e.employeeId);
+          const missingIds = createDto.passengerIds.filter((id) => !foundIds.includes(id));
+          if (missingIds.length > 0) {
+            return {
+              error: {
+                message: `Passenger IDs not found: ${missingIds.join(', ')}`,
+                code: HttpStatus.BAD_REQUEST,
+              },
+            };
+          }
+
+          // Auto-populate passengerNames from passengerIds
+          passengerNames = employees.map((e) => e.fullName);
+        } catch (error) {
+          Logger.error(
+            error instanceof Error ? error.message : 'Error fetching passenger data',
+            error instanceof Error ? error.stack : undefined,
+            'BookingsUseCase.create - fetchPassengers',
+          );
+          return {
+            error: {
+              message: 'Failed to fetch passenger data',
+              code: HttpStatus.INTERNAL_SERVER_ERROR,
+            },
+          };
+        }
+      } else if (createDto.passengerNames && createDto.passengerNames.length > 0) {
+        // Backward compatibility: if only passengerNames provided, use it
+        passengerNames = createDto.passengerNames;
+      }
+
       const bookingData: Prisma.BookingCreateInput = {
         bookingNumber,
         requester: {
@@ -124,14 +189,15 @@ export class BookingsUseCase implements BookingsUsecasePort {
           connect: { id: createDto.categoryId },
         },
         serviceType: createDto.serviceType,
-        purpose: createDto.purpose,
+        purpose: finalPurpose,
         startAt: new Date(createDto.startAt),
         endAt: new Date(createDto.endAt),
         passengerCount: createDto.passengerCount,
         resourceMode: createDto.resourceMode,
         bookingStatus: isDraft ? BookingStatus.DRAFT : BookingStatus.SUBMITTED, // Set status based on isDraft flag
         createdBy: userId,
-        ...(createDto.passengerNames && { passengerNames: createDto.passengerNames as Prisma.InputJsonValue }),
+        ...(passengerIds && { passengerIds: passengerIds as Prisma.InputJsonValue }),
+        ...(passengerNames && { passengerNames: passengerNames as Prisma.InputJsonValue }),
         ...(createDto.vehicleId && {
           vehicle: {
             connect: { id: createDto.vehicleId },
@@ -464,16 +530,174 @@ export class BookingsUseCase implements BookingsUsecasePort {
       ]);
 
       // Transform S3 keys into presigned URLs if any vehicle/asset images are involved
+      // Also calculate receipt summary for each booking
       const dataWithPresignedUrls = await Promise.all(
         data.map(async (booking) => {
           const bookingWithRelations = booking as IBookingWithRelations;
-          return transformBookingWithPresignedUrls(bookingWithRelations, this.s3Service);
+          const bookingWithUrls = await transformBookingWithPresignedUrls(bookingWithRelations, this.s3Service);
+
+          // Calculate receipt summary and collect receipt items with presigned URLs
+          let receiptSummary: IReceiptSummary | null = null;
+          let receipts: IReceiptItem[] = [];
+
+          if (bookingWithRelations.segments && bookingWithRelations.segments.length > 0) {
+            const allReceiptItems: Array<{ category: string; amountIdr: number }> = [];
+            const allReceiptItemsWithDetails: any[] = [];
+
+            for (const segment of bookingWithRelations.segments) {
+              // Type assertion karena execution sudah di-include di query
+              const segmentWithExecution = segment as any;
+              if (segmentWithExecution.execution?.verification?.receiptItems) {
+                const receiptItems = segmentWithExecution.execution.verification.receiptItems.filter(
+                  (item: any) => !item.deletedAt,
+                );
+                allReceiptItems.push(
+                  ...receiptItems.map((item: any) => ({
+                    category: item.category,
+                    amountIdr: item.amountIdr,
+                  })),
+                );
+                allReceiptItemsWithDetails.push(...receiptItems);
+              }
+            }
+
+            if (allReceiptItems.length > 0) {
+              const totalAmount = allReceiptItems.reduce((sum, item) => sum + item.amountIdr, 0);
+              const categoryMap = new Map<string, { count: number; totalAmount: number }>();
+
+              allReceiptItems.forEach((item) => {
+                const existing = categoryMap.get(item.category) || { count: 0, totalAmount: 0 };
+                categoryMap.set(item.category, {
+                  count: existing.count + 1,
+                  totalAmount: existing.totalAmount + item.amountIdr,
+                });
+              });
+
+              receiptSummary = {
+                totalReceipts: allReceiptItems.length,
+                totalAmount,
+                categories: Array.from(categoryMap.entries()).map(([category, data]) => ({
+                  category,
+                  count: data.count,
+                  totalAmount: data.totalAmount,
+                })),
+              };
+
+              // Generate presigned URLs for receipt photos (24 hours expiry)
+              receipts = await Promise.all(
+                allReceiptItemsWithDetails.map(async (item) => {
+                  let presignedPhotoUrl = item.photoUrl;
+                  try {
+                    // Check if photoUrl is already a presigned URL (contains ?X-Amz- or is a full URL)
+                    const isPresignedUrl = item.photoUrl.includes('?X-Amz-') || item.photoUrl.startsWith('http');
+
+                    if (isPresignedUrl) {
+                      // If already a presigned URL, extract S3 key from it
+                      let s3Key = item.photoUrl;
+
+                      // Try to extract S3 key from presigned URL
+                      try {
+                        // Decode URL multiple times to handle double/triple encoding
+                        let decodedUrl = item.photoUrl;
+                        let maxDecodes = 5; // Prevent infinite loop
+                        while (maxDecodes > 0 && (decodedUrl.includes('%3A') || decodedUrl.includes('%2F'))) {
+                          decodedUrl = decodeURIComponent(decodedUrl);
+                          maxDecodes--;
+                        }
+
+                        // Parse the decoded URL
+                        const url = new URL(decodedUrl);
+                        // Get the pathname (S3 key is in the pathname)
+                        let path = url.pathname;
+
+                        // Remove leading slash
+                        path = path.startsWith('/') ? path.substring(1) : path;
+
+                        // If path still contains a full URL (double-encoded case), extract key from inner URL
+                        if (path.startsWith('http://') || path.startsWith('https://')) {
+                          const innerUrl = new URL(path);
+                          path = innerUrl.pathname.startsWith('/') ? innerUrl.pathname.substring(1) : innerUrl.pathname;
+                        }
+
+                        s3Key = path;
+
+                        // Generate fresh presigned URL from S3 key
+                        presignedPhotoUrl = await this.s3Service.getPresignedUrl(s3Key, 86400);
+                      } catch (urlError) {
+                        // If URL parsing fails, try to extract S3 key manually using regex
+                        // Look for pattern: s3.region.amazonaws.com/key or bucket.s3.region.amazonaws.com/key
+                        const s3Pattern = /s3\.[^/]+\.amazonaws\.com\/([^?]+)/;
+                        const match = item.photoUrl.match(s3Pattern);
+
+                        if (match && match[1]) {
+                          let extractedKey = decodeURIComponent(match[1]);
+
+                          // Handle double/triple encoding - decode until no more encoded characters
+                          let maxDecodes = 5;
+                          while (maxDecodes > 0 && (extractedKey.includes('%3A') || extractedKey.includes('%2F'))) {
+                            extractedKey = decodeURIComponent(extractedKey);
+                            maxDecodes--;
+                          }
+
+                          // If extracted key still contains a full URL, extract key from inner URL
+                          if (extractedKey.startsWith('http://') || extractedKey.startsWith('https://')) {
+                            const innerMatch = extractedKey.match(/s3\.[^/]+\.amazonaws\.com\/([^?]+)/);
+                            if (innerMatch && innerMatch[1]) {
+                              extractedKey = decodeURIComponent(innerMatch[1]);
+                            }
+                          }
+
+                          presignedPhotoUrl = await this.s3Service.getPresignedUrl(extractedKey, 86400);
+                        } else {
+                          // If we can't extract S3 key, log warning and use original URL
+                          Logger.warn(
+                            `Cannot extract S3 key from presigned URL, using original: ${item.photoUrl.substring(0, 100)}...`,
+                            'BookingsUseCase.findAll',
+                          );
+                          presignedPhotoUrl = item.photoUrl;
+                        }
+                      }
+                    } else {
+                      // If it's an S3 key (not a presigned URL), generate presigned URL
+                      presignedPhotoUrl = await this.s3Service.getPresignedUrl(item.photoUrl, 86400);
+                    }
+                  } catch (error) {
+                    Logger.warn(
+                      `Failed to generate presigned URL for receipt photo: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                      'BookingsUseCase.findAll',
+                    );
+                    // Use original photoUrl as fallback
+                    presignedPhotoUrl = item.photoUrl;
+                  }
+
+                  return {
+                    id: item.id,
+                    category: item.category,
+                    amountIdr: item.amountIdr,
+                    receiptDate: item.receiptDate,
+                    photoUrl: presignedPhotoUrl,
+                    fundingSource: item.fundingSource,
+                    gaNote: item.gaNote,
+                    createdAt: item.createdAt,
+                    createdBy: item.createdBy,
+                    ocrSnapshot: item.ocrSnapshot,
+                  };
+                }),
+              );
+            }
+          }
+
+          return {
+            ...bookingWithUrls,
+            receiptSummary,
+            receipts,
+          } as IBooking;
         }),
       );
 
       return {
         data: {
-          data: dataWithPresignedUrls as IBooking[],
+          data: dataWithPresignedUrls,
           meta: {
             page,
             limit,
@@ -680,8 +904,52 @@ export class BookingsUseCase implements BookingsUsecasePort {
         updateData.passengerCount = updateDto.passengerCount;
       }
 
-      if (updateDto.passengerNames !== undefined) {
-        updateData.passengerNames = updateDto.passengerNames as Prisma.InputJsonValue; // Store as JSON
+      // Handle passengerIds and passengerNames
+      if (updateDto.passengerIds !== undefined && updateDto.passengerIds.length > 0) {
+        // If passengerIds provided, fetch employee names
+        try {
+          const employees = await this.db.employee.findMany({
+            where: {
+              employeeId: { in: updateDto.passengerIds },
+              deletedAt: null,
+            },
+            select: {
+              employeeId: true,
+              fullName: true,
+            },
+          });
+
+          // Validate all passengerIds exist
+          const foundIds = employees.map((e) => e.employeeId);
+          const missingIds = updateDto.passengerIds.filter((id) => !foundIds.includes(id));
+          if (missingIds.length > 0) {
+            return {
+              error: {
+                message: `Passenger IDs not found: ${missingIds.join(', ')}`,
+                code: HttpStatus.BAD_REQUEST,
+              },
+            };
+          }
+
+          // Auto-populate passengerNames from passengerIds
+          updateData.passengerIds = updateDto.passengerIds as Prisma.InputJsonValue;
+          updateData.passengerNames = employees.map((e) => e.fullName) as Prisma.InputJsonValue;
+        } catch (error) {
+          Logger.error(
+            error instanceof Error ? error.message : 'Error fetching passenger data',
+            error instanceof Error ? error.stack : undefined,
+            'BookingsUseCase.update - fetchPassengers',
+          );
+          return {
+            error: {
+              message: 'Failed to fetch passenger data',
+              code: HttpStatus.INTERNAL_SERVER_ERROR,
+            },
+          };
+        }
+      } else if (updateDto.passengerNames !== undefined) {
+        // Backward compatibility: if only passengerNames provided, use it
+        updateData.passengerNames = updateDto.passengerNames as Prisma.InputJsonValue;
       }
 
       if (updateDto.serviceType !== undefined) {
@@ -976,7 +1244,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
     }
   };
 
-  findTripDetail = async (id: number, userId?: string): Promise<IUsecaseResponse<ITripDetail>> => {
+  findTripDetail = async (id: number): Promise<IUsecaseResponse<ITripDetail>> => {
     try {
       // 1. Get booking with all relations
       const booking = (await this.repository.findById(id)) as IBookingWithRelations | null;
@@ -1028,7 +1296,8 @@ export class BookingsUseCase implements BookingsUsecasePort {
           let driverPhotoUrl: string | undefined;
           if (sj.driver.photoAsset) {
             try {
-              driverPhotoUrl = await this.s3Service.getPresignedUrl(sj.driver.photoAsset.url);
+              // 24 hours expiry (86400 seconds) for driver photo
+              driverPhotoUrl = await this.s3Service.getPresignedUrl(sj.driver.photoAsset.url, 86400);
             } catch (error) {
               Logger.warn(
                 `Failed to generate presigned URL for driver photo: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -1092,11 +1361,22 @@ export class BookingsUseCase implements BookingsUsecasePort {
 
       // 6. Get VerificationHeader if exists
       let verification: ITripDetail['verification'] = null;
+      let receipts: ITripDetail['receipts'] = [];
       if (execution) {
         const verificationHeader = await this.db.verificationHeader.findFirst({
           where: {
             segmentExecutionId: execution.id,
             deletedAt: null,
+          },
+          include: {
+            receiptItems: {
+              where: {
+                deletedAt: null,
+              },
+              orderBy: {
+                createdAt: 'desc',
+              },
+            },
           },
         });
 
@@ -1110,6 +1390,53 @@ export class BookingsUseCase implements BookingsUsecasePort {
             reimburseTicket: verificationHeader.reimburseTicket,
             replenishTicket: verificationHeader.replenishTicket,
           };
+
+          // 7. Get ReceiptItems with presigned URLs (24 hours expiry)
+          if (verificationHeader.receiptItems && verificationHeader.receiptItems.length > 0) {
+            receipts = await Promise.all(
+              verificationHeader.receiptItems.map(async (item) => {
+                let presignedPhotoUrl = item.photoUrl;
+                try {
+                  // Check if photoUrl is already a presigned URL
+                  const isPresignedUrl = item.photoUrl.includes('?X-Amz-');
+
+                  if (isPresignedUrl) {
+                    // Extract S3 key from presigned URL
+                    // Decode URL to handle encoding
+                    const decodedUrl = decodeURIComponent(item.photoUrl);
+
+                    // Parse URL to get pathname (S3 key)
+                    const url = new URL(decodedUrl);
+                    const s3Key = url.pathname.startsWith('/') ? url.pathname.substring(1) : url.pathname;
+
+                    // Generate fresh presigned URL
+                    presignedPhotoUrl = await this.s3Service.getPresignedUrl(s3Key, 86400);
+                  } else {
+                    // If it's an S3 key, generate presigned URL
+                    presignedPhotoUrl = await this.s3Service.getPresignedUrl(item.photoUrl, 86400);
+                  }
+                } catch (error) {
+                  Logger.warn(
+                    `Failed to generate presigned URL for receipt photo: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                    'BookingsUseCase.findTripDetail',
+                  );
+                  presignedPhotoUrl = item.photoUrl;
+                }
+
+                return {
+                  id: item.id,
+                  category: item.category,
+                  amountIdr: item.amountIdr,
+                  receiptDate: item.receiptDate,
+                  photoUrl: presignedPhotoUrl,
+                  fundingSource: item.fundingSource,
+                  gaNote: item.gaNote,
+                  createdAt: item.createdAt,
+                  createdBy: item.createdBy,
+                };
+              }),
+            );
+          }
         }
       }
 
@@ -1118,6 +1445,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
         suratJalan,
         execution,
         verification,
+        receipts,
       };
 
       return { data: tripDetail };

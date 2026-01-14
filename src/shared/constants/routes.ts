@@ -21,6 +21,7 @@ export const authRoute = {
   login: '/login',
   social: '/login/social',
   verifyOtp: '/verify-otp',
+  searchUser: '/search-user',
 };
 
 export const roleRoute = {
@@ -105,4 +106,10 @@ export const paramSetRoute = {
   findOne: '/:id',
   publish: '/:id/publish',
   rollback: '/:id/rollback',
+};
+
+export const financeRoute = {
+  base: '/finance',
+  verifyItem: '/verify-item',
+  closeTrip: '/trip/:executionId/close',
 };

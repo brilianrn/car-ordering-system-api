@@ -64,7 +64,12 @@ export class CreateBookingDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  passengerNames?: string[]; // Array of passenger names
+  passengerIds?: string[]; // Array of employee IDs (employeeId strings) - preferred
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  passengerNames?: string[]; // Array of passenger names (for backward compatibility, will be auto-populated from passengerIds)
 
   @IsEnum(ServiceType)
   serviceType: ServiceType;
@@ -82,6 +87,10 @@ export class CreateBookingDto {
   @IsInt()
   @Min(1)
   vehicleId?: number; // Optional: Preferred vehicle ID (will be validated for availability)
+
+  @IsOptional()
+  @IsString()
+  additionalNotes?: string; // Optional - additional notes (will be appended to purpose)
 
   @IsOptional()
   @IsBoolean()

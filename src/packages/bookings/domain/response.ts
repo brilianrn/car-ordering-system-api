@@ -11,10 +11,43 @@ import {
 } from './entities/booking.entity';
 
 /**
+ * Receipt Summary
+ * Summary of receipts for a trip/execution
+ */
+export interface IReceiptSummary {
+  totalReceipts: number;
+  totalAmount: number;
+  categories: {
+    category: string;
+    count: number;
+    totalAmount: number;
+  }[];
+}
+
+/**
+ * Receipt Item with Presigned URL
+ */
+export interface IReceiptItem {
+  id: number;
+  category: string;
+  amountIdr: number;
+  receiptDate: Date;
+  photoUrl: string; // Presigned URL
+  fundingSource: string;
+  gaNote: string | null;
+  createdAt: Date;
+  createdBy: string;
+  ocrSnapshot?: any; // Optional, for audit/detail
+}
+
+/**
  * Booking Response Interface
  * Used for API responses (with presigned URLs for vehicle images)
  */
-export type IBooking = IBookingWithPresignedUrls;
+export interface IBooking extends IBookingWithPresignedUrls {
+  receiptSummary?: IReceiptSummary | null;
+  receipts?: IReceiptItem[]; // Receipt items with presigned URLs
+}
 
 /**
  * Booking Category (for backward compatibility)
@@ -109,4 +142,5 @@ export interface ITripDetail {
     reimburseTicket?: string | null;
     replenishTicket?: string | null;
   } | null;
+  receipts?: IReceiptItem[];
 }

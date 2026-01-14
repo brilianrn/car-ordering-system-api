@@ -14,6 +14,7 @@ export class DriversRepository implements DriversRepositoryPort {
         data,
         include: {
           vendor: true,
+          dedicatedVehicle: true,
           photoAsset: true,
           ktpAsset: true,
           simAsset: true,
@@ -38,6 +39,7 @@ export class DriversRepository implements DriversRepositoryPort {
         ...params,
         include: {
           vendor: true,
+          dedicatedVehicle: true,
           photoAsset: true,
           ktpAsset: true,
           simAsset: true,
@@ -82,6 +84,7 @@ export class DriversRepository implements DriversRepositoryPort {
         },
         include: {
           vendor: true,
+          dedicatedVehicle: true,
           photoAsset: true,
           ktpAsset: true,
           simAsset: true,
@@ -103,6 +106,7 @@ export class DriversRepository implements DriversRepositoryPort {
         where: { id },
         include: {
           vendor: true,
+          dedicatedVehicle: true,
           photoAsset: true,
           ktpAsset: true,
           simAsset: true,
@@ -135,6 +139,7 @@ export class DriversRepository implements DriversRepositoryPort {
         ...params,
         include: {
           vendor: true,
+          dedicatedVehicle: true,
           photoAsset: true,
           ktpAsset: true,
           simAsset: true,
@@ -172,6 +177,13 @@ export class DriversRepository implements DriversRepositoryPort {
           ...where,
           deletedAt: null,
         },
+        include: {
+          vendor: true,
+          dedicatedVehicle: true,
+          photoAsset: true,
+          ktpAsset: true,
+          simAsset: true,
+        },
       });
     } catch (error) {
       Logger.error(
@@ -190,6 +202,7 @@ export class DriversRepository implements DriversRepositoryPort {
         take: params.take,
         include: {
           vendor: true,
+          dedicatedVehicle: true,
           photoAsset: true,
           ktpAsset: true,
           simAsset: true,
@@ -216,6 +229,7 @@ export class DriversRepository implements DriversRepositoryPort {
         },
         include: {
           vendor: true,
+          dedicatedVehicle: true,
           photoAsset: true,
           ktpAsset: true,
           simAsset: true,

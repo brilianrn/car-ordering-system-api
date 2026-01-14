@@ -14,7 +14,7 @@ export * from './vehicle.entity';
 
 // Booking Include Entities
 export * from './booking-include.entity';
-export { BASE_BOOKING_INCLUDE, DEFAULT_BOOKING_INCLUDE } from './booking-include.entity';
+export { BASE_BOOKING_INCLUDE } from './booking-include.entity';
 
 // Booking Entities
 export * from './booking.entity';

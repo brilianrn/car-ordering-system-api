@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { LoginDto } from '../dto/login.dto';
 import { RegisterDto } from '../dto/register.dto';
+import { SearchUserDto } from '../dto/search-user.dto';
 import { AuthRepository } from '../repository/auth.repository';
 
 @Injectable()
@@ -51,5 +52,23 @@ export class AuthUseCase {
     //   message: 'Login success',
     //   accessToken,
     // };
+  }
+
+  // =========================================
+  // SEARCH USER
+  // =========================================
+  async searchUsers(dto: SearchUserDto) {
+    const users = await this.repo.searchUsers({
+      query: dto.query,
+      employeeId: dto.employeeId,
+      email: dto.email,
+      fullName: dto.fullName,
+      limit: 50,
+    });
+
+    return {
+      message: 'Search users success',
+      data: users,
+    };
   }
 }

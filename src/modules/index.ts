@@ -12,6 +12,7 @@ import { ExecutionModule } from './execution.module';
 import { CostVariableModule } from './cost-variable.module';
 import { CategoryModule } from '@/packages/category/category.module';
 import { ParamSetModule } from '@/packages/param-set/param-set.module';
+import { FinanceModule } from './finance.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { ParamSetModule } from '@/packages/param-set/param-set.module';
     CostVariableModule,
     CategoryModule,
     ParamSetModule,
+    FinanceModule,
   ],
 })
 export class AppModule {}

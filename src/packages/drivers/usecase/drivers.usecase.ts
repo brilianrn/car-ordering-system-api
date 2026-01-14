@@ -146,6 +146,25 @@ export class DriversUseCase implements DriversUsecasePort {
         };
       }
 
+      // Validate dedicated vehicle logic
+      if (createDto.isDedicated === true && !createDto.dedicatedVehicleId) {
+        return {
+          error: {
+            message: 'dedicatedVehicleId is required when isDedicated is true',
+            code: 400,
+          },
+        };
+      }
+
+      if (createDto.isDedicated === false && createDto.dedicatedVehicleId) {
+        return {
+          error: {
+            message: 'dedicatedVehicleId should not be provided when isDedicated is false',
+            code: 400,
+          },
+        };
+      }
+
       const driver = await this.repository.create({
         driverCode,
         fullName: createDto.fullName,
@@ -162,6 +181,10 @@ export class DriversUseCase implements DriversUsecasePort {
         plantLocation: createDto.plantLocation,
         realtimeStatus: createDto.realtimeStatus ?? RealtimeStatus.Idle,
         isDedicated: createDto.isDedicated ?? false,
+        dedicatedVehicle:
+          createDto.isDedicated && createDto.dedicatedVehicleId
+            ? { connect: { id: createDto.dedicatedVehicleId } }
+            : undefined,
         photoAsset: createDto.photoAssetId ? { connect: { id: createDto.photoAssetId } } : undefined,
         ktpAsset: createDto.ktpAssetId ? { connect: { id: createDto.ktpAssetId } } : undefined,
         simAsset: createDto.simAssetId ? { connect: { id: createDto.simAssetId } } : undefined,
@@ -235,8 +258,33 @@ export class DriversUseCase implements DriversUsecasePort {
         }
       }
 
+      // Validate dedicated vehicle logic if updating
+      if (updateDto.isDedicated !== undefined || updateDto.dedicatedVehicleId !== undefined) {
+        const finalIsDedicated = updateDto.isDedicated ?? existing.isDedicated;
+        const finalDedicatedVehicleId = updateDto.dedicatedVehicleId ?? (existing.dedicatedVehicleId || null);
+
+        if (finalIsDedicated === true && !finalDedicatedVehicleId) {
+          return {
+            error: {
+              message: 'dedicatedVehicleId is required when isDedicated is true',
+              code: 400,
+            },
+          };
+        }
+
+        if (finalIsDedicated === false && finalDedicatedVehicleId) {
+          return {
+            error: {
+              message: 'dedicatedVehicleId should not be provided when isDedicated is false',
+              code: 400,
+            },
+          };
+        }
+      }
+
+      const { dedicatedVehicleId, ...updateDtoWithoutDedicatedVehicle } = updateDto;
       const updateData: any = {
-        ...updateDto,
+        ...updateDtoWithoutDedicatedVehicle,
         updatedBy: userId,
       };
 
@@ -246,6 +294,24 @@ export class DriversUseCase implements DriversUsecasePort {
 
       if (updateDto.driverType === DriverType.INTERNAL) {
         updateData.vendorId = null;
+      }
+
+      // Handle dedicatedVehicle update logic
+      if (updateDto.isDedicated !== undefined || updateDto.dedicatedVehicleId !== undefined) {
+        // If isDedicated is being set to false, clear dedicatedVehicle
+        if (updateDto.isDedicated === false) {
+          updateData.dedicatedVehicle = { disconnect: true };
+        }
+        // If isDedicated is being set to true, use provided dedicatedVehicleId
+        else if (updateDto.isDedicated === true && updateDto.dedicatedVehicleId) {
+          updateData.dedicatedVehicle = { connect: { id: updateDto.dedicatedVehicleId } };
+        }
+        // If only dedicatedVehicleId is being updated
+        else if (updateDto.dedicatedVehicleId !== undefined && existing.isDedicated) {
+          updateData.dedicatedVehicle = updateDto.dedicatedVehicleId
+            ? { connect: { id: updateDto.dedicatedVehicleId } }
+            : { disconnect: true };
+        }
       }
 
       // Handle asset IDs
