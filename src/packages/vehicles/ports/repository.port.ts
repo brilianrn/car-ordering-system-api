@@ -23,4 +23,6 @@ export interface VehiclesRepositoryPort {
   createVehicleImage: (data: Prisma.VehicleImageCreateInput) => Promise<VehicleImage>;
   deleteVehicleImages: (vehicleId: number) => Promise<void>;
   findActiveOrganizations: () => Promise<OrganizationUnit[]>;
+  findLatestId: () => Promise<number>;
+  findSameVehicleCode: (vehicleCode: string) => Promise<Vehicle | null>;
 }

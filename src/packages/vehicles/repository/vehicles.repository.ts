@@ -198,4 +198,36 @@ export class VehiclesRepository implements VehiclesRepositoryPort {
       throw error;
     }
   };
+
+  findLatestId = async (): Promise<number> => {
+    try {
+      const result = await this.db.vehicle.findFirst({
+        orderBy: { id: 'desc' },
+        select: { id: true },
+      });
+      return result?.id || 0;
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findLatestId',
+        error instanceof Error ? error.stack : undefined,
+        'VehiclesRepository.findLatestId',
+      );
+      throw error;
+    }
+  };
+
+  findSameVehicleCode = async (vehicleCode: string): Promise<Vehicle | null> => {
+    try {
+      return await this.db.vehicle.findFirst({
+        where: { vehicleCode },
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findSameVehicleCode',
+        error instanceof Error ? error.stack : undefined,
+        'VehiclesRepository.findSameVehicleCode',
+      );
+      throw error;
+    }
+  };
 }

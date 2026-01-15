@@ -272,17 +272,11 @@ export class VehiclesUseCase implements VehiclesUsecasePort {
         const cleanLocation = createDto.plantLocation.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
         const prefix = cleanLocation.substring(0, 4).padEnd(3, 'X');
 
-        const latestVehicle = await this.repository.findMany({
-          skip: 0,
-          take: 1,
-          orderBy: {
-            id: 'desc',
-          },
-        });
+        const latestVehicle = await this.repository.findLatestId();
 
         let sequence = 1;
         if (latestVehicle) {
-          const numericPart = latestVehicle?.[0]?.id?.toString();
+          const numericPart = latestVehicle?.toString();
           sequence = parseInt(numericPart || '0', 10) + 1;
         }
 
@@ -290,9 +284,7 @@ export class VehiclesUseCase implements VehiclesUsecasePort {
           const sequenceStr = sequence.toString().padStart(3, '0');
           generatedCode = `${prefix}${sequenceStr}`;
 
-          const existingVehicle = await this.repository.findFirst({
-            vehicleCode: generatedCode,
-          });
+          const existingVehicle = await this.repository.findSameVehicleCode(generatedCode);
 
           if (!existingVehicle) {
             isUnique = true;
