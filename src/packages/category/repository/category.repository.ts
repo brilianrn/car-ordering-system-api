@@ -1,7 +1,7 @@
 import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { Injectable } from '@nestjs/common';
-import { CategoryScope, Prisma, PrismaClient } from '@prisma/client';
+import { Category, CategoryScope, Prisma, PrismaClient } from '@prisma/client';
 import { CategoryRepositoryPort } from '../ports/repository.port';
 
 @Injectable()
@@ -10,10 +10,8 @@ export class CategoryRepository implements CategoryRepositoryPort {
 
   create = async (data: Prisma.CategoryCreateInput): Promise<any> => {
     try {
-      // Ensure id is not set manually (let database auto-increment)
-      const { id, ...dataWithoutId } = data as any;
       return await this.db.category.create({
-        data: dataWithoutId,
+        data,
       });
     } catch (error: any) {
       // Check if it's a unique constraint error on id (sequence issue)
@@ -224,6 +222,23 @@ export class CategoryRepository implements CategoryRepositoryPort {
         error instanceof Error ? error.message : 'Error in findActiveCategoriesForBooking',
         error instanceof Error ? error.stack : undefined,
         'CategoryRepository.findActiveCategoriesForBooking',
+      );
+      throw error;
+    }
+  };
+
+  findLovCategories = async (): Promise<Category[]> => {
+    try {
+      return await this.db.category.findMany({
+        where: {
+          deletedAt: null,
+        },
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findLovCategories',
+        error instanceof Error ? error.stack : undefined,
+        'CategoryRepository.findLovCategories',
       );
       throw error;
     }

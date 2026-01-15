@@ -282,9 +282,18 @@ export class DriversUseCase implements DriversUsecasePort {
         }
       }
 
-      const { dedicatedVehicleId, ...updateDtoWithoutDedicatedVehicle } = updateDto;
-      const updateData: any = {
-        ...updateDtoWithoutDedicatedVehicle,
+      // Exclude relation IDs from updateDto before spreading
+      const {
+        dedicatedVehicleId,
+        vendorId,
+        photoAssetId,
+        ktpAssetId,
+        simAssetId,
+        ...updateDtoWithoutRelationIds
+      } = updateDto;
+
+      const updateData: Prisma.DriverUpdateInput = {
+        ...updateDtoWithoutRelationIds,
         updatedBy: userId,
       };
 
@@ -293,7 +302,7 @@ export class DriversUseCase implements DriversUsecasePort {
       }
 
       if (updateDto.driverType === DriverType.INTERNAL) {
-        updateData.vendorId = null;
+        updateData.vendor = { disconnect: true };
       }
 
       // Handle dedicatedVehicle update logic

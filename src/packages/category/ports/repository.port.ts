@@ -1,4 +1,4 @@
-import { CategoryScope, CategoryStatus, Prisma } from '@prisma/client';
+import { Category, Prisma } from '@prisma/client';
 
 export interface CategoryRepositoryPort {
   create(data: Prisma.CategoryCreateInput): Promise<any>;
@@ -15,4 +15,5 @@ export interface CategoryRepositoryPort {
   update(id: number, data: Prisma.CategoryUpdateInput): Promise<any>;
   hasBookings(id: number): Promise<boolean>;
   findActiveCategoriesForBooking(params: { orgUnitCode?: string; paramSetCategoryIds?: number[] }): Promise<any[]>;
+  findLovCategories(): Promise<Category[]>;
 }

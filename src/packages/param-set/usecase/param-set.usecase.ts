@@ -1,10 +1,10 @@
+import { RMQ } from '@/config/rabbitmq';
+import { RabbitMQService } from '@/shared/rabbitmq/rabbitmq.service';
 import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
-import { RabbitMQService } from '@/shared/rabbitmq/rabbitmq.service';
-import { RMQ } from '@/config/rabbitmq';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { ParamEnvironment, ParamGroup, ParamName, ParamScope, ParamSetStatus, Prisma } from '@prisma/client';
+import { ParamEnvironment, ParamName, ParamScope, ParamSetStatus, Prisma } from '@prisma/client';
 import { CreateParamSetDto, PublishParamSetDto, QueryParamSetDto, RollbackParamSetDto } from '../dto';
 import { ParamSetRepositoryPort } from '../ports/repository.port';
 import { ParamSetUsecasePort } from '../ports/usecase.port';

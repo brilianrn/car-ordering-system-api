@@ -2,11 +2,11 @@ import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { CategoryScope, CategoryStatus, ParamSetStatus, ParamGroup, Prisma } from '@prisma/client';
+import { Category, CategoryScope, CategoryStatus, Prisma } from '@prisma/client';
+import { ICategoryListResponse } from '../domain/response';
 import { CreateCategoryDto } from '../dto/create-category.dto';
 import { QueryCategoryDto } from '../dto/query-category.dto';
 import { UpdateCategoryDto } from '../dto/update-category.dto';
-import { ICategoryListResponse } from '../domain/response';
 import { CategoryRepositoryPort } from '../ports/repository.port';
 import { CategoryUsecasePort } from '../ports/usecase.port';
 
@@ -413,57 +413,60 @@ export class CategoryUseCase implements CategoryUsecasePort {
     }
   };
 
-  findActiveCategoriesForBooking = async (orgUnitCode?: string): Promise<IUsecaseResponse<any[]>> => {
+  findActiveCategoriesForBooking = async (): Promise<IUsecaseResponse<Category[]>> => {
     try {
-      // 1. Get published ParamSet
-      const publishedParamSet = await this.db.paramSet.findFirst({
-        where: {
-          status: ParamSetStatus.PUBLISHED,
-          deletedAt: null,
-        },
-        include: {
-          items: {
-            where: {
-              group: ParamGroup.KATEGORI, // Using KATEGORI enum value
-              deletedAt: null,
-            },
-          },
-        },
-        orderBy: {
-          version: 'desc',
-        },
-      });
-
-      if (!publishedParamSet) {
-        return {
-          data: [],
-        };
-      }
-
-      // 2. Extract category IDs from ParamSet items
-      // Assuming ParamItem.value contains category ID or code
-      // This might need adjustment based on actual ParamSet structure
-      const categoryIds: number[] = [];
-      for (const item of publishedParamSet.items) {
-        const categoryId = parseInt(item.value, 10);
-        if (!isNaN(categoryId)) {
-          categoryIds.push(categoryId);
-        } else {
-          // If value is code, find by code
-          const category = await this.repository.findByCode(item.value);
-          if (category) {
-            categoryIds.push(category.id);
-          }
-        }
-      }
-
-      // 3. Get active categories with double-gate visibility
-      const categories = await this.repository.findActiveCategoriesForBooking({
-        orgUnitCode,
-        paramSetCategoryIds: categoryIds,
-      });
-
+      const categories = await this.repository.findLovCategories();
       return { data: categories };
+
+      // // 1. Get published ParamSet
+      // const publishedParamSet = await this.db.paramSet.findFirst({
+      //   where: {
+      //     status: ParamSetStatus.PUBLISHED,
+      //     deletedAt: null,
+      //   },
+      //   include: {
+      //     items: {
+      //       where: {
+      //         group: ParamGroup.KATEGORI, // Using KATEGORI enum value
+      //         deletedAt: null,
+      //       },
+      //     },
+      //   },
+      //   orderBy: {
+      //     version: 'desc',
+      //   },
+      // });
+
+      // if (!publishedParamSet) {
+      //   return {
+      //     data: [],
+      //   };
+      // }
+
+      // // 2. Extract category IDs from ParamSet items
+      // // Assuming ParamItem.value contains category ID or code
+      // // This might need adjustment based on actual ParamSet structure
+      // const categoryIds: number[] = [];
+      // for (const item of publishedParamSet.items) {
+      //   const categoryId = parseInt(item.value, 10);
+      //   if (!isNaN(categoryId)) {
+      //     categoryIds.push(categoryId);
+      //   } else {
+      //     // If value is code, find by code
+      //     const category = await this.repository.findByCode(item.value);
+      //     if (category) {
+      //       categoryIds.push(category.id);
+      //     }
+      //   }
+      // }
+
+      // // 3. Get active categories with double-gate visibility
+      // const categories = await this.repository.findActiveCategoriesForBooking({
+      //   orgUnitCode,
+      //   paramSetCategoryIds: categoryIds,
+      // });
+
+      // return { data: categories };
     } catch (error) {
       Logger.error(
         error instanceof Error ? error.message : 'Error in findActiveCategoriesForBooking',
