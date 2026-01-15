@@ -265,7 +265,42 @@ export class VehiclesUseCase implements VehiclesUsecasePort {
       const isUserProvidedCode = !!createDto.vehicleCode;
 
       if (!vehicleCode) {
-        const generatedCode = await this.generateVehicleCode(createDto.plantLocation);
+        let isUnique = false;
+        let generatedCode: string | null = null;
+
+        // Get latest vehicle code with same prefix
+        const cleanLocation = createDto.plantLocation.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        const prefix = cleanLocation.substring(0, 4).padEnd(3, 'X');
+
+        const latestVehicle = await this.repository.findMany({
+          skip: 0,
+          take: 1,
+          orderBy: {
+            id: 'desc',
+          },
+        });
+
+        let sequence = 1;
+        if (latestVehicle) {
+          const numericPart = latestVehicle?.[0]?.id?.toString();
+          sequence = parseInt(numericPart || '0', 10) + 1;
+        }
+
+        while (!isUnique) {
+          const sequenceStr = sequence.toString().padStart(3, '0');
+          generatedCode = `${prefix}${sequenceStr}`;
+
+          const existingVehicle = await this.repository.findFirst({
+            vehicleCode: generatedCode,
+          });
+
+          if (!existingVehicle) {
+            isUnique = true;
+          } else {
+            sequence++;
+          }
+        }
+
         if (!generatedCode) {
           return {
             error: {
@@ -276,7 +311,6 @@ export class VehiclesUseCase implements VehiclesUsecasePort {
         }
         vehicleCode = generatedCode;
       }
-
       if (isUserProvidedCode) {
         const existingByCode = await this.repository.findFirst({
           vehicleCode,
@@ -599,70 +633,6 @@ export class VehiclesUseCase implements VehiclesUsecasePort {
       return { error };
     }
   };
-
-  /**
-   * Generate unique vehicle code based on plantLocation
-   * Format: {PLANT_PREFIX}{SEQUENCE_NUMBER}
-   * Example: JKT001, BDG001, SBY001
-   * Retries until a unique code is found
-   */
-  private async generateVehicleCode(plantLocation: string): Promise<string | null> {
-    try {
-      const cleanLocation = plantLocation.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-      const prefix = cleanLocation.substring(0, 4).padEnd(3, 'X');
-
-      const allVehiclesWithPrefix = await this.repository.findMany({
-        skip: 0,
-        take: 1000,
-        where: {
-          vehicleCode: {
-            startsWith: prefix,
-          },
-        },
-        include: undefined,
-      });
-
-      let maxSequence = 0;
-      for (const vehicle of allVehiclesWithPrefix) {
-        const code = vehicle.vehicleCode;
-
-        const numericPart = code.substring(prefix.length);
-        const sequence = parseInt(numericPart, 10);
-        if (!isNaN(sequence) && sequence > maxSequence) {
-          maxSequence = sequence;
-        }
-      }
-
-      const maxAttempts = 100;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const newSequence = maxSequence + 1 + attempt;
-        const sequenceStr = newSequence.toString().padStart(3, '0');
-        const generatedCode = `${prefix}${sequenceStr}`;
-
-        const duplicateCheck = await this.repository.findFirst({
-          vehicleCode: generatedCode,
-        });
-
-        if (!duplicateCheck) {
-          return generatedCode;
-        }
-      }
-
-      Logger.error(
-        `Failed to generate unique vehicle code after ${maxAttempts} attempts for prefix: ${prefix}`,
-        undefined,
-        'VehiclesUseCase.generateVehicleCode',
-      );
-      return null;
-    } catch (error) {
-      Logger.error(
-        error instanceof Error ? error.message : 'Error in generateVehicleCode',
-        error instanceof Error ? error.stack : undefined,
-        'VehiclesUseCase.generateVehicleCode',
-      );
-      return null;
-    }
-  }
 
   lovOrganizations = async (): Promise<IUsecaseResponse<IOrganizationLOV[]>> => {
     try {
