@@ -58,4 +58,8 @@ export class UpdateDriverDto {
   @IsOptional()
   @IsInt()
   simAssetId?: number;
+
+  @IsOptional()
+  @IsString()
+  internalNik?: string;
 }

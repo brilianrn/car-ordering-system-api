@@ -283,14 +283,9 @@ export class DriversUseCase implements DriversUsecasePort {
       }
 
       // Exclude relation IDs from updateDto before spreading
-      const {
-        dedicatedVehicleId,
-        vendorId,
-        photoAssetId,
-        ktpAssetId,
-        simAssetId,
-        ...updateDtoWithoutRelationIds
-      } = updateDto;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { dedicatedVehicleId, vendorId, photoAssetId, ktpAssetId, simAssetId, ...updateDtoWithoutRelationIds } =
+        updateDto;
 
       const updateData: Prisma.DriverUpdateInput = {
         ...updateDtoWithoutRelationIds,
