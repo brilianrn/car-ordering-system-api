@@ -645,7 +645,7 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
     ocrSnapshot: any;
   }> {
     let ocrSnapshot: any = null;
-    let parsedData: {
+    const parsedData: {
       category?: CostCategory;
       amountIdr?: number;
       receiptDate?: string;

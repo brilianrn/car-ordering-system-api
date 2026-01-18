@@ -98,6 +98,7 @@ export interface IAvailableVehicle {
  */
 export interface ITripDetail {
   booking: IBooking;
+  carpoolBookings?: IBooking[];
   suratJalan?: {
     id: number;
     sjCode: string;

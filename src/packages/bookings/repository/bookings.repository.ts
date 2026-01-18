@@ -1,7 +1,7 @@
 import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { Injectable } from '@nestjs/common';
-import { Booking, Prisma, PrismaClient } from '@prisma/client';
+import { Booking, CarpoolGroup, CarpoolInvite, Prisma, PrismaClient } from '@prisma/client';
 import { BASE_BOOKING_INCLUDE } from '../domain/entities';
 import { BookingsRepositoryPort } from '../ports/repository.port';
 
@@ -538,6 +538,46 @@ export class BookingsRepository implements BookingsRepositoryPort {
         error instanceof Error ? error.message : 'Error in createApprovalHeader',
         error instanceof Error ? error.stack : undefined,
         'BookingsRepository.createApprovalHeader',
+      );
+      throw error;
+    }
+  };
+
+  findManyCarpoolGroup = async (): Promise<CarpoolGroup[]> => {
+    try {
+      return await this.db.carpoolGroup.findMany({
+        include: {
+          invites: {
+            include: {
+              hostBooking: true,
+            },
+          },
+        },
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findManyCarpoolGroup',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsRepository.findManyCarpoolGroup',
+      );
+      throw error;
+    }
+  };
+
+  findInvitationBookings = async (carpoolGroupId: number): Promise<CarpoolInvite[]> => {
+    try {
+      return await this.db.carpoolInvite.findMany({
+        where: { carpoolGroupId, deletedAt: null },
+        include: {
+          joinerBooking: true,
+          hostBooking: true,
+        },
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findInvitationBooking',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsRepository.findInvitationBooking',
       );
       throw error;
     }

@@ -1,4 +1,4 @@
-import { Booking, Prisma } from '@prisma/client';
+import { Booking, CarpoolGroup, CarpoolInvite, Prisma } from '@prisma/client';
 
 export interface BookingsRepositoryPort {
   createWithTransaction(data: {
@@ -56,4 +56,8 @@ export interface BookingsRepositoryPort {
   findApprovalHeaderByBookingId(bookingId: number): Promise<{ id: number; bookingId: number } | null>;
 
   createApprovalHeader(data: Prisma.ApprovalHeaderCreateInput): Promise<void>;
+
+  findManyCarpoolGroup(): Promise<CarpoolGroup[]>;
+
+  findInvitationBookings(carpoolGroupId: number): Promise<CarpoolInvite[]>;
 }

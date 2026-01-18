@@ -162,22 +162,26 @@ export class CarpoolUseCase {
       }
 
       // Get or create carpool group
-      let carpoolGroup = await this.repository.findCarpoolGroupById(hostBooking.carpoolGroupId || 0);
+      let carpoolGroup;
 
-      if (!carpoolGroup && !hostBooking.carpoolGroupId) {
-        // Create new carpool group
-        carpoolGroup = await this.repository.createCarpoolGroup({
-          hostBooking: {
-            connect: { id: dto.hostBookingId },
-          },
-          status: 'Active',
-          createdBy: userId,
-        });
+      // First check if carpool group exists for this host booking (by hostBookingId)
+      carpoolGroup = await (this.repository as any).findCarpoolGroupByHostBookingId(dto.hostBookingId);
+
+      // If not found, create new carpool group
+      if (!carpoolGroup) {
+        carpoolGroup = await this.repository.createCarpoolGroupWithHost(dto.hostBookingId, userId);
       }
 
       // Check if invite already exists for this joiner booking
-      // Note: This check should query by joinerBookingId, but for now we'll create new invite
-      // TODO: Add proper duplicate invite check
+      const existingInvite = await (this.repository as any).findInviteByJoinerBookingId(dto.joinerBookingId);
+      if (existingInvite) {
+        return {
+          error: {
+            message: `Joiner booking ${dto.joinerBookingId} already has an invite (ID: ${existingInvite.id})`,
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
+      }
 
       // Get config for expiry
       const config = await this.configService.getConfig();

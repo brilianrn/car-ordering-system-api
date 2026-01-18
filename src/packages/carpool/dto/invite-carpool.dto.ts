@@ -1,22 +1,26 @@
-import { IsInt, IsNotEmpty, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsBoolean, IsInt, IsNotEmpty, IsOptional, Min } from 'class-validator';
 
 export class InviteCarpoolDto {
   @IsInt()
   @IsNotEmpty()
   @Type(() => Number)
   @Min(1)
-  hostBookingId: number; // Host booking ID
+  hostBookingId: number;
 
   @IsInt()
   @IsNotEmpty()
   @Type(() => Number)
   @Min(1)
-  joinerBookingId: number; // Joiner booking ID to invite
+  joinerBookingId: number;
 
   @IsInt()
   @IsNotEmpty()
   @Type(() => Number)
   @Min(1)
-  expiresInMinutes?: number; // Optional: invitation expiry in minutes (default from config)
+  expiresInMinutes?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  gaMerge: boolean;
 }

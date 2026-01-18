@@ -459,7 +459,13 @@ export class BookingsUseCase implements BookingsUsecasePort {
         }
       }
 
-      const [data, total] = await Promise.all([
+      // if (where?.bookingStatus === BookingStatus.ASSIGNED) {
+      //   where.bookingStatus = {
+      //     in: [BookingStatus.ASSIGNED, BookingStatus.MERGED],
+      //   };
+      // }
+
+      let [data, total] = await Promise.all([
         this.repository.findMany({
           skip,
           take: limit,
@@ -528,6 +534,84 @@ export class BookingsUseCase implements BookingsUsecasePort {
         }),
         this.repository.count(where),
       ]);
+
+      if (where?.bookingStatus === BookingStatus.ASSIGNED) {
+        const carpoolGroups = await this.repository.findManyCarpoolGroup();
+        const hostBookingIds = carpoolGroups.map((group) => group.hostBookingId);
+
+        if (hostBookingIds.length > 0) {
+          const hostBookings = await this.repository.findMany({
+            skip,
+            take: limit,
+            where: {
+              id: { in: hostBookingIds },
+            },
+            include: {
+              category: true,
+              segments: {
+                where: { deletedAt: null },
+                orderBy: { segmentNo: 'asc' },
+                include: {
+                  execution: {
+                    where: { deletedAt: null },
+                    include: {
+                      verification: {
+                        where: { deletedAt: null },
+                        include: {
+                          receiptItems: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              approvalHeader: {
+                include: {
+                  approverL1: {
+                    select: {
+                      employeeId: true,
+                      fullName: true,
+                      email: true,
+                    },
+                  },
+                },
+              },
+              requester: {
+                select: {
+                  employeeId: true,
+                  fullName: true,
+                  email: true,
+                },
+              },
+              assignment: {
+                include: {
+                  vehicleChosen: {
+                    include: {
+                      images: {
+                        select: {
+                          asset: true,
+                        },
+                      },
+                    },
+                  },
+                  driverChosen: {
+                    include: {
+                      photoAsset: true,
+                      ktpAsset: true,
+                      simAsset: true,
+                    },
+                  },
+                },
+              },
+            },
+          });
+
+          data = data.concat(hostBookings);
+          total = total + hostBookings.length;
+        }
+
+        data = data?.sort((a, b) => b.id - a.id);
+      }
 
       // Transform S3 keys into presigned URLs if any vehicle/asset images are involved
       // Also calculate receipt summary for each booking
@@ -1258,197 +1342,221 @@ export class BookingsUseCase implements BookingsUsecasePort {
         };
       }
 
-      // 2. Validate booking is assigned (trip only exists for assigned bookings)
-      if (booking.bookingStatus !== BookingStatus.ASSIGNED) {
-        return {
-          error: {
-            message: `Booking is not assigned yet. Trip detail is only available for assigned bookings. Current status: ${booking.bookingStatus}`,
-            code: HttpStatus.BAD_REQUEST,
-          },
-        };
-      }
+      let carpoolBookings: IBooking[] = [];
 
-      // 3. Transform booking with presigned URLs
-      const bookingWithPresignedUrls = await transformBookingWithPresignedUrls(booking, this.s3Service);
-
-      // 4. Get SuratJalan (Travel Order) for the booking
-      let suratJalan: ITripDetail['suratJalan'] = null;
-      if (booking.segments && booking.segments.length > 0) {
-        const segment = booking.segments[0];
-        const sj = await this.db.suratJalan.findFirst({
-          where: {
-            bookingId: id,
-            segmentId: segment.id,
-            deletedAt: null,
-          },
-          include: {
-            driver: {
+      // 2. Validate booking is assigned (trip only exists for assigned or merged bookings)
+      if (booking.bookingStatus === BookingStatus.ASSIGNED || booking.bookingStatus === BookingStatus.MERGED) {
+        if (booking.bookingStatus === BookingStatus.MERGED) {
+          const bookingInvitation = await this.repository.findInvitationBookings(booking.carpoolGroupId ?? 0);
+          if (bookingInvitation.length > 0) {
+            const bookingIds = bookingInvitation.map((invite) => invite.joinerBookingId);
+            carpoolBookings = await this.repository.findMany({
+              skip: 0,
+              take: 100,
+              where: {
+                id: { in: bookingIds },
+              },
               include: {
-                photoAsset: true,
+                category: true,
+                segments: {
+                  where: { deletedAt: null },
+                  orderBy: { segmentNo: 'asc' },
+                },
+              },
+            });
+          }
+        }
+
+        // 3. Transform booking with presigned URLs
+        const bookingWithPresignedUrls = await transformBookingWithPresignedUrls(booking, this.s3Service);
+
+        // 4. Get SuratJalan (Travel Order) for the booking
+        let suratJalan: ITripDetail['suratJalan'] = null;
+        if (booking.segments && booking.segments.length > 0) {
+          const segment = booking.segments[0];
+          const sj = await this.db.suratJalan.findFirst({
+            where: {
+              bookingId: id,
+              segmentId: segment.id,
+              deletedAt: null,
+            },
+            include: {
+              driver: {
+                include: {
+                  photoAsset: true,
+                },
+              },
+              vehicle: true,
+            },
+          });
+
+          if (sj) {
+            // Get driver photo presigned URL if available
+            let driverPhotoUrl: string | undefined;
+            if (sj.driver.photoAsset) {
+              try {
+                // 24 hours expiry (86400 seconds) for driver photo
+                driverPhotoUrl = await this.s3Service.getPresignedUrl(sj.driver.photoAsset.url, 86400);
+              } catch (error) {
+                Logger.warn(
+                  `Failed to generate presigned URL for driver photo: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                  'BookingsUseCase.findTripDetail',
+                );
+              }
+            }
+
+            suratJalan = {
+              id: sj.id,
+              sjCode: sj.sjCode,
+              status: sj.status,
+              isHandover: sj.isHandover,
+              stopList: sj.stopList,
+              createdAt: sj.createdAt,
+              updatedAt: sj.updatedAt,
+              driver: {
+                id: sj.driver.id,
+                driverCode: sj.driver.driverCode,
+                fullName: sj.driver.fullName,
+                phoneNumber: sj.driver.phoneNumber,
+                photoUrl: driverPhotoUrl,
+              },
+              vehicle: {
+                id: sj.vehicle.id,
+                vehicleCode: sj.vehicle.vehicleCode,
+                licensePlate: sj.vehicle.licensePlate,
+                brandModel: sj.vehicle.brandModel,
+              },
+            };
+          }
+        }
+
+        // 5. Get SegmentExecution if exists
+        let execution: ITripDetail['execution'] = null;
+        if (booking.segments && booking.segments.length > 0) {
+          const segment = booking.segments[0];
+          const segmentExecution = await this.db.segmentExecution.findFirst({
+            where: {
+              segmentId: segment.id,
+              deletedAt: null,
+            },
+          });
+
+          if (segmentExecution) {
+            execution = {
+              id: segmentExecution.id,
+              status: segmentExecution.status,
+              checkInAt: segmentExecution.checkInAt,
+              checkOutAt: segmentExecution.checkOutAt,
+              odoStart: segmentExecution.odoStart,
+              odoEnd: segmentExecution.odoEnd,
+              odoDistance: segmentExecution.odoDistance,
+              gpsDistance: segmentExecution.gpsDistance,
+              anomalyFlags: segmentExecution.anomalyFlags,
+              createdAt: segmentExecution.createdAt,
+              updatedAt: segmentExecution.updatedAt,
+            };
+          }
+        }
+
+        // 6. Get VerificationHeader if exists
+        let verification: ITripDetail['verification'] = null;
+        let receipts: ITripDetail['receipts'] = [];
+        if (execution) {
+          const verificationHeader = await this.db.verificationHeader.findFirst({
+            where: {
+              segmentExecutionId: execution.id,
+              deletedAt: null,
+            },
+            include: {
+              receiptItems: {
+                where: {
+                  deletedAt: null,
+                },
+                orderBy: {
+                  createdAt: 'desc',
+                },
               },
             },
-            vehicle: true,
-          },
-        });
+          });
 
-        if (sj) {
-          // Get driver photo presigned URL if available
-          let driverPhotoUrl: string | undefined;
-          if (sj.driver.photoAsset) {
-            try {
-              // 24 hours expiry (86400 seconds) for driver photo
-              driverPhotoUrl = await this.s3Service.getPresignedUrl(sj.driver.photoAsset.url, 86400);
-            } catch (error) {
-              Logger.warn(
-                `Failed to generate presigned URL for driver photo: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                'BookingsUseCase.findTripDetail',
+          if (verificationHeader) {
+            verification = {
+              id: verificationHeader.id,
+              verifyStatus: verificationHeader.verifyStatus,
+              verifierId: verificationHeader.verifierId,
+              verifiedAt: verificationHeader.verifiedAt,
+              anomalyHandled: verificationHeader.anomalyHandled,
+              reimburseTicket: verificationHeader.reimburseTicket,
+              replenishTicket: verificationHeader.replenishTicket,
+            };
+
+            // 7. Get ReceiptItems with presigned URLs (24 hours expiry)
+            if (verificationHeader.receiptItems && verificationHeader.receiptItems.length > 0) {
+              receipts = await Promise.all(
+                verificationHeader.receiptItems.map(async (item) => {
+                  let presignedPhotoUrl = item.photoUrl;
+                  try {
+                    // Check if photoUrl is already a presigned URL
+                    const isPresignedUrl = item.photoUrl.includes('?X-Amz-');
+
+                    if (isPresignedUrl) {
+                      // Extract S3 key from presigned URL
+                      // Decode URL to handle encoding
+                      const decodedUrl = decodeURIComponent(item.photoUrl);
+
+                      // Parse URL to get pathname (S3 key)
+                      const url = new URL(decodedUrl);
+                      const s3Key = url.pathname.startsWith('/') ? url.pathname.substring(1) : url.pathname;
+
+                      // Generate fresh presigned URL
+                      presignedPhotoUrl = await this.s3Service.getPresignedUrl(s3Key, 86400);
+                    } else {
+                      // If it's an S3 key, generate presigned URL
+                      presignedPhotoUrl = await this.s3Service.getPresignedUrl(item.photoUrl, 86400);
+                    }
+                  } catch (error) {
+                    Logger.warn(
+                      `Failed to generate presigned URL for receipt photo: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                      'BookingsUseCase.findTripDetail',
+                    );
+                    presignedPhotoUrl = item.photoUrl;
+                  }
+
+                  return {
+                    id: item.id,
+                    category: item.category,
+                    amountIdr: item.amountIdr,
+                    receiptDate: item.receiptDate,
+                    photoUrl: presignedPhotoUrl,
+                    fundingSource: item.fundingSource,
+                    gaNote: item.gaNote,
+                    createdAt: item.createdAt,
+                    createdBy: item.createdBy,
+                  };
+                }),
               );
             }
           }
-
-          suratJalan = {
-            id: sj.id,
-            sjCode: sj.sjCode,
-            status: sj.status,
-            isHandover: sj.isHandover,
-            stopList: sj.stopList,
-            createdAt: sj.createdAt,
-            updatedAt: sj.updatedAt,
-            driver: {
-              id: sj.driver.id,
-              driverCode: sj.driver.driverCode,
-              fullName: sj.driver.fullName,
-              phoneNumber: sj.driver.phoneNumber,
-              photoUrl: driverPhotoUrl,
-            },
-            vehicle: {
-              id: sj.vehicle.id,
-              vehicleCode: sj.vehicle.vehicleCode,
-              licensePlate: sj.vehicle.licensePlate,
-              brandModel: sj.vehicle.brandModel,
-            },
-          };
         }
+
+        const tripDetail: ITripDetail = {
+          booking: bookingWithPresignedUrls as IBooking,
+          suratJalan,
+          execution,
+          verification,
+          receipts,
+          carpoolBookings,
+        };
+
+        return { data: tripDetail };
       }
 
-      // 5. Get SegmentExecution if exists
-      let execution: ITripDetail['execution'] = null;
-      if (booking.segments && booking.segments.length > 0) {
-        const segment = booking.segments[0];
-        const segmentExecution = await this.db.segmentExecution.findFirst({
-          where: {
-            segmentId: segment.id,
-            deletedAt: null,
-          },
-        });
-
-        if (segmentExecution) {
-          execution = {
-            id: segmentExecution.id,
-            status: segmentExecution.status,
-            checkInAt: segmentExecution.checkInAt,
-            checkOutAt: segmentExecution.checkOutAt,
-            odoStart: segmentExecution.odoStart,
-            odoEnd: segmentExecution.odoEnd,
-            odoDistance: segmentExecution.odoDistance,
-            gpsDistance: segmentExecution.gpsDistance,
-            anomalyFlags: segmentExecution.anomalyFlags,
-            createdAt: segmentExecution.createdAt,
-            updatedAt: segmentExecution.updatedAt,
-          };
-        }
-      }
-
-      // 6. Get VerificationHeader if exists
-      let verification: ITripDetail['verification'] = null;
-      let receipts: ITripDetail['receipts'] = [];
-      if (execution) {
-        const verificationHeader = await this.db.verificationHeader.findFirst({
-          where: {
-            segmentExecutionId: execution.id,
-            deletedAt: null,
-          },
-          include: {
-            receiptItems: {
-              where: {
-                deletedAt: null,
-              },
-              orderBy: {
-                createdAt: 'desc',
-              },
-            },
-          },
-        });
-
-        if (verificationHeader) {
-          verification = {
-            id: verificationHeader.id,
-            verifyStatus: verificationHeader.verifyStatus,
-            verifierId: verificationHeader.verifierId,
-            verifiedAt: verificationHeader.verifiedAt,
-            anomalyHandled: verificationHeader.anomalyHandled,
-            reimburseTicket: verificationHeader.reimburseTicket,
-            replenishTicket: verificationHeader.replenishTicket,
-          };
-
-          // 7. Get ReceiptItems with presigned URLs (24 hours expiry)
-          if (verificationHeader.receiptItems && verificationHeader.receiptItems.length > 0) {
-            receipts = await Promise.all(
-              verificationHeader.receiptItems.map(async (item) => {
-                let presignedPhotoUrl = item.photoUrl;
-                try {
-                  // Check if photoUrl is already a presigned URL
-                  const isPresignedUrl = item.photoUrl.includes('?X-Amz-');
-
-                  if (isPresignedUrl) {
-                    // Extract S3 key from presigned URL
-                    // Decode URL to handle encoding
-                    const decodedUrl = decodeURIComponent(item.photoUrl);
-
-                    // Parse URL to get pathname (S3 key)
-                    const url = new URL(decodedUrl);
-                    const s3Key = url.pathname.startsWith('/') ? url.pathname.substring(1) : url.pathname;
-
-                    // Generate fresh presigned URL
-                    presignedPhotoUrl = await this.s3Service.getPresignedUrl(s3Key, 86400);
-                  } else {
-                    // If it's an S3 key, generate presigned URL
-                    presignedPhotoUrl = await this.s3Service.getPresignedUrl(item.photoUrl, 86400);
-                  }
-                } catch (error) {
-                  Logger.warn(
-                    `Failed to generate presigned URL for receipt photo: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                    'BookingsUseCase.findTripDetail',
-                  );
-                  presignedPhotoUrl = item.photoUrl;
-                }
-
-                return {
-                  id: item.id,
-                  category: item.category,
-                  amountIdr: item.amountIdr,
-                  receiptDate: item.receiptDate,
-                  photoUrl: presignedPhotoUrl,
-                  fundingSource: item.fundingSource,
-                  gaNote: item.gaNote,
-                  createdAt: item.createdAt,
-                  createdBy: item.createdBy,
-                };
-              }),
-            );
-          }
-        }
-      }
-
-      const tripDetail: ITripDetail = {
-        booking: bookingWithPresignedUrls as IBooking,
-        suratJalan,
-        execution,
-        verification,
-        receipts,
+      return {
+        error: {
+          message: `Booking is not assigned yet. Trip detail is only available for assigned bookings. Current status: ${booking.bookingStatus}`,
+          code: HttpStatus.BAD_REQUEST,
+        },
       };
-
-      return { data: tripDetail };
     } catch (error) {
       Logger.error(
         error instanceof Error ? error.message : 'Error in findTripDetail',
