@@ -1,3 +1,4 @@
+import { CostCategory } from '@/packages/cost-variable/dto/create-cost-variable.dto';
 import { clientDb, OCRService, S3Service } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
@@ -5,13 +6,12 @@ import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { BookingStatus, Prisma, RealtimeStatus } from '@prisma/client';
 import { CheckInSegmentDto } from '../dto/check-in-segment.dto';
 import { CheckOutSegmentDto } from '../dto/check-out-segment.dto';
-import { UploadReceiptDto } from '../dto/upload-receipt.dto';
-import { UploadMultipleReceiptsDto } from '../dto/upload-multiple-receipts.dto';
-import { VerifyExecutionDto } from '../dto/verify-execution.dto';
 import { ScanReceiptDto } from '../dto/scan-receipt.dto';
+import { UploadMultipleReceiptsDto } from '../dto/upload-multiple-receipts.dto';
+import { UploadReceiptDto } from '../dto/upload-receipt.dto';
+import { VerifyExecutionDto } from '../dto/verify-execution.dto';
 import { ExecutionRepositoryPort } from '../ports/repository.port';
 import { ExecutionUsecasePort } from '../ports/usecase.port';
-import { CostCategory } from '@/packages/cost-variable/dto/create-cost-variable.dto';
 
 @Injectable()
 export class ExecutionUseCase implements ExecutionUsecasePort {
@@ -54,7 +54,10 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
 
       // 3. Validate booking is assigned
       const booking = await this.repository.findBookingById(segment.bookingId);
-      if (!booking || booking.bookingStatus !== BookingStatus.ASSIGNED) {
+      if (
+        !booking ||
+        (booking.bookingStatus !== BookingStatus.ASSIGNED && booking.bookingStatus !== BookingStatus.MERGED)
+      ) {
         return {
           error: {
             message: 'Booking is not assigned yet',
