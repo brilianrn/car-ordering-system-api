@@ -1,19 +1,20 @@
+import { AnalyticsModule } from '@/packages/analytics/analytics.module';
+import { CategoryModule } from '@/packages/category/category.module';
+import { ParamSetModule } from '@/packages/param-set/param-set.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ApprovalModule } from './approval.module';
+import { AssignmentModule } from './assignment.module';
 import { AuthModule } from './auth.module';
 import { BookingsModule } from './bookings.module';
 import { CarpoolModule } from './carpool.module';
+import { CostVariableModule } from './cost-variable.module';
 import { DriversModule } from './driver.module';
+import { ExecutionModule } from './execution.module';
+import { FinanceModule } from './finance.module';
+import { ReportsModule } from './reports.module';
 import { UploadModule } from './upload.module';
 import { VehiclesModule } from './vehicles.module';
-import { ApprovalModule } from './approval.module';
-import { AssignmentModule } from './assignment.module';
-import { ExecutionModule } from './execution.module';
-import { CostVariableModule } from './cost-variable.module';
-import { CategoryModule } from '@/packages/category/category.module';
-import { ParamSetModule } from '@/packages/param-set/param-set.module';
-import { FinanceModule } from './finance.module';
-import { AnalyticsModule } from '@/packages/analytics/analytics.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { AnalyticsModule } from '@/packages/analytics/analytics.module';
     ParamSetModule,
     FinanceModule,
     AnalyticsModule,
+    ReportsModule,
   ],
 })
 export class AppModule {}
