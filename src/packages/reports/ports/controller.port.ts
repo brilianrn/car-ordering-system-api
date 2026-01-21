@@ -8,5 +8,5 @@ export interface ReportsControllerPort {
   getSummary(query: ReportQueryDto, userId: string, res: Response): Promise<Response<ResponseREST<ReportSummary>>>;
   getCharts(query: ReportQueryDto, userId: string, res: Response): Promise<Response<ResponseREST<ChartData>>>;
   getRecap(query: RecapQueryDto, userId: string, res: Response): Promise<Response<ResponseREST<RecapData>>>;
-  exportReport(body: ExportReportDto, userId: string, res: Response): Promise<Response<ResponseREST<Buffer>>>;
+  exportReport(body: ExportReportDto, userId: string, res: Response): Promise<void>;
 }

@@ -137,9 +137,16 @@ export class ReportsController implements ReportsControllerPort {
     @Body() body: ExportReportDto,
     @Headers('x-user-id') userId: string,
     @Res() res: Response,
-  ): Promise<Response<ResponseREST<Buffer>>> {
+  ): Promise<void> {
     try {
-      const buffer = await this.reportsService.exportReport(body, userId);
+      const result = await this.reportsService.exportReport(body, userId);
+
+      if (result.error) {
+        res.status(HttpStatus.BAD_REQUEST).json({
+          message: result.error.message || validationMessage()[500](),
+        });
+        return;
+      }
 
       const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
       const filename = body.filename || `COS-Report-${timestamp}`;
@@ -148,22 +155,16 @@ export class ReportsController implements ReportsControllerPort {
         res.set({
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           'Content-Disposition': `attachment; filename="${filename}.xlsx"`,
-          'Content-Length': buffer.data?.length?.toString(),
+          'Content-Length': result.data!.length.toString(),
         });
-        return response[HttpStatus.OK](res, {
-          message: validationMessage()[200](),
-          data: buffer,
-        });
+        res.send(result.data);
       } else {
         res.set({
           'Content-Type': 'application/pdf',
           'Content-Disposition': `attachment; filename="${filename}.pdf"`,
-          'Content-Length': buffer.data?.length?.toString(),
+          'Content-Length': result.data!.length.toString(),
         });
-        return response[HttpStatus.OK](res, {
-          message: validationMessage()[200](),
-          data: buffer,
-        });
+        res.send(result.data);
       }
     } catch (error) {
       Logger.error(
@@ -171,7 +172,7 @@ export class ReportsController implements ReportsControllerPort {
         error instanceof Error ? error.stack : undefined,
         'ReportsController.exportReport',
       );
-      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
         message: error?.message || validationMessage()[500](),
       });
     }
