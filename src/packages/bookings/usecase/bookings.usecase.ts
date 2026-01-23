@@ -311,7 +311,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
           const supervisor = await this.repository.findEmployeeByEmployeeId(requester.approverL1Id);
           if (supervisor) {
             await this.notificationService.sendBookingSubmissionNotifications(
-              supervisor.email,
+              supervisor.email || '',
               supervisor.employeeId,
               bookingNumber,
               requester.fullName,
@@ -883,7 +883,12 @@ export class BookingsUseCase implements BookingsUsecasePort {
       }
 
       // 4. Validate supervisor exists if submitting (isDraft: false)
-      let requester: { employeeId: string; approverL1Id: string | null; fullName: string; email: string } | null = null;
+      let requester: {
+        employeeId: string;
+        approverL1Id: string | null;
+        fullName: string;
+        email: string | null;
+      } | null = null;
       if (shouldSubmit) {
         requester = await this.repository.findEmployeeByEmployeeId(requesterId);
         if (!requester) {
@@ -1102,7 +1107,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
                 const purpose =
                   typeof updateData.purpose === 'string' ? updateData.purpose : existingBooking.purpose || '';
                 await this.notificationService.sendBookingSubmissionNotifications(
-                  supervisor.email,
+                  supervisor.email || '',
                   supervisor.employeeId,
                   bookingNumber,
                   requester.fullName,

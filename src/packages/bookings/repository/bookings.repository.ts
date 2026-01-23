@@ -196,7 +196,7 @@ export class BookingsRepository implements BookingsRepositoryPort {
 
   findEmployeeById = async (
     employeeId: string,
-  ): Promise<{ employeeId: string; approverL1Id: string | null; fullName: string; email: string } | null> => {
+  ): Promise<{ employeeId: string; approverL1Id: string | null; fullName: string; email: string | null } | null> => {
     try {
       const employee = await this.db.employee.findUnique({
         where: { employeeId },
@@ -235,7 +235,7 @@ export class BookingsRepository implements BookingsRepositoryPort {
 
   findEmployeeByEmployeeId = async (
     employeeId: string,
-  ): Promise<{ employeeId: string; approverL1Id: string | null; fullName: string; email: string } | null> => {
+  ): Promise<{ employeeId: string; approverL1Id: string | null; fullName: string; email: string | null } | null> => {
     try {
       const employee = await this.db.employee.findUnique({
         where: { employeeId },

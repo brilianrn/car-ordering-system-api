@@ -4,7 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import 'dotenv/config';
 import { json, urlencoded } from 'express';
 import { AppModule } from './modules';
-import { SchedulerModule } from './modules/scheduler.module';
+import { SchedulerPackageModule } from './modules/scheduler.module';
 import { WorkerModule } from './modules/worker.module';
 import { AllExceptionsFilter } from './shared/utils';
 
@@ -72,11 +72,24 @@ async function bootstrap() {
     }
 
     case 'SCHEDULER': {
-      await NestFactory.createApplicationContext(SchedulerModule, {
+      console.log({
+        cronExpression: process.env.SCHEDULER_CRON_EXPRESSION,
+        timezone: process.env.SCHEDULER_TIMEZONE,
+        retryAttempts: parseInt(process.env.SCHEDULER_RETRY_ATTEMPTS!),
+        retryDelay: parseInt(process.env.SCHEDULER_RETRY_DELAY!),
+        batchTimeout: parseInt(process.env.SCHEDULER_BATCH_TIMEOUT!),
+        enableRollback: process.env.SCHEDULER_ENABLE_ROLLBACK === 'true',
+      });
+      const port = process.env.PORT || '3003';
+      if (port !== '3003') {
+        throw new Error(`❌ Scheduler mode must run on PORT=3003, got PORT=${port}`);
+      }
+
+      await NestFactory.createApplicationContext(SchedulerPackageModule, {
         logger: ['error', 'warn', 'log'],
       });
 
-      console.log('🗓️ Scheduler started — running cron jobs...');
+      console.log('🗓️ Scheduler started on port 3003 — running cron jobs...');
       break;
     }
 

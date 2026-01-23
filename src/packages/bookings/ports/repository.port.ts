@@ -21,13 +21,13 @@ export interface BookingsRepositoryPort {
 
   findEmployeeById(
     employeeId: string,
-  ): Promise<{ employeeId: string; approverL1Id: string | null; fullName: string; email: string } | null>;
+  ): Promise<{ employeeId: string; approverL1Id: string | null; fullName: string; email: string | null } | null>;
 
   findBookingByNumber(bookingNumber: string): Promise<Booking | null>;
 
   findEmployeeByEmployeeId(
     employeeId: string,
-  ): Promise<{ employeeId: string; approverL1Id: string | null; fullName: string; email: string } | null>;
+  ): Promise<{ employeeId: string; approverL1Id: string | null; fullName: string; email: string | null } | null>;
 
   findAvailableVehicles(params: {
     startAt?: Date;

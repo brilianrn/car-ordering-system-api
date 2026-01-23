@@ -78,10 +78,11 @@ export class ReportsRepository implements ReportsRepositoryPort {
     for (const booking of bookings) {
       if (booking.carpoolGroupId) carpoolTrips++;
       totalPassengers += booking.passengerCount;
-      
+
       for (const segment of booking.segments) {
         if (segment.execution?.checkInAt && segment.execution?.checkOutAt) {
-          const hours = (segment.execution.checkOutAt.getTime() - segment.execution.checkInAt.getTime()) / (1000 * 60 * 60);
+          const hours =
+            (segment.execution.checkOutAt.getTime() - segment.execution.checkInAt.getTime()) / (1000 * 60 * 60);
           totalUsedHours += hours;
         }
       }
@@ -117,7 +118,11 @@ export class ReportsRepository implements ReportsRepositoryPort {
           startAt: { gte: filters.startDate, lte: filters.endDate },
           requester: {
             orgUnit: {
-              code: user.orgUnitCode ? { equals: user.orgUnitCode } : user.plant ? { startsWith: user.plant } : undefined,
+              code: user.orgUnitCode
+                ? { equals: user.orgUnitCode }
+                : user.plant
+                  ? { startsWith: user.plant }
+                  : undefined,
             },
           },
         },
@@ -143,7 +148,8 @@ export class ReportsRepository implements ReportsRepositoryPort {
 
         if (approval.assignment?.assignedAtL2 && approval.decisionL1 === 'APPROVED') {
           slaL2Total++;
-          const l2Hours = (approval.assignment.assignedAtL2.getTime() - approval.decisionTimeL1.getTime()) / (1000 * 60 * 60);
+          const l2Hours =
+            (approval.assignment.assignedAtL2.getTime() - approval.decisionTimeL1.getTime()) / (1000 * 60 * 60);
           totalL2Hours += l2Hours;
           if (l2Hours <= 8) slaL2Compliant++;
         }
@@ -158,7 +164,11 @@ export class ReportsRepository implements ReportsRepositoryPort {
           cancelReason: { contains: 'NoShow' },
           requester: {
             orgUnit: {
-              code: user.orgUnitCode ? { equals: user.orgUnitCode } : user.plant ? { startsWith: user.plant } : undefined,
+              code: user.orgUnitCode
+                ? { equals: user.orgUnitCode }
+                : user.plant
+                  ? { startsWith: user.plant }
+                  : undefined,
             },
           },
         },
@@ -171,7 +181,11 @@ export class ReportsRepository implements ReportsRepositoryPort {
           startAt: { gte: filters.startDate, lte: filters.endDate },
           requester: {
             orgUnit: {
-              code: user.orgUnitCode ? { equals: user.orgUnitCode } : user.plant ? { startsWith: user.plant } : undefined,
+              code: user.orgUnitCode
+                ? { equals: user.orgUnitCode }
+                : user.plant
+                  ? { startsWith: user.plant }
+                  : undefined,
             },
           },
         },
@@ -209,7 +223,11 @@ export class ReportsRepository implements ReportsRepositoryPort {
               startAt: { gte: filters.startDate, lte: filters.endDate },
               requester: {
                 orgUnit: {
-                  code: user.orgUnitCode ? { equals: user.orgUnitCode } : user.plant ? { startsWith: user.plant } : undefined,
+                  code: user.orgUnitCode
+                    ? { equals: user.orgUnitCode }
+                    : user.plant
+                      ? { startsWith: user.plant }
+                      : undefined,
                 },
               },
             },
@@ -344,11 +362,7 @@ export class ReportsRepository implements ReportsRepositoryPort {
     return [];
   }
 
-  async getRecapData(
-    filters: ReportFilters,
-    user: UserContext,
-    pagination: any,
-  ): Promise<RecapData> {
+  async getRecapData(filters: ReportFilters, user: UserContext, pagination: any): Promise<RecapData> {
     const bookings = await this.db.booking.findMany({
       where: {
         startAt: { gte: filters.startDate, lte: filters.endDate },
