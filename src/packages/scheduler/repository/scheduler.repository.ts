@@ -389,7 +389,7 @@ export class SchedulerRepository implements SchedulerRepositoryPort {
 
         try {
           const batchLogs = await this.db.auditSync.createMany({
-            data: batch.map(log => ({
+            data: batch.map((log) => ({
               id: uuidv4(),
               ...log,
               timestamp: new Date(),

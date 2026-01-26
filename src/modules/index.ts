@@ -2,6 +2,7 @@ import { SchedulerPackageModule } from '@/modules/scheduler.module';
 import { AnalyticsModule } from '@/packages/analytics/analytics.module';
 import { CategoryModule } from '@/packages/category/category.module';
 import { ParamSetModule } from '@/packages/param-set/param-set.module';
+import { RBACModule } from '@/packages/rbac/rbac.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ApprovalModule } from './approval.module';
@@ -39,6 +40,7 @@ import { VehiclesModule } from './vehicles.module';
     AnalyticsModule,
     ReportsModule,
     SchedulerPackageModule,
+    RBACModule,
   ],
 })
 export class AppModule {}
