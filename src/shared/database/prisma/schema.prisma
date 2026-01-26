@@ -27,31 +27,39 @@ model OrganizationUnit {
 }
 
 model Employee {
-  id                  Int              @id @default(autoincrement())
-  employeeId          String           @unique @map("employee_id")
-  fullName            String           @map("full_name")
-  email               String?          @unique @map("email")
-  orgUnitId           Int              @map("org_unit_id")
-  costCenter          String?          @map("cost_center")
-  isActive            Boolean          @default(true) @map("is_active")
-  effectiveFrom       DateTime         @map("effective_from")
-  approverL1Id        String?          @map("approver_l1_id")
-  effectiveRoles      Role[]           @map("effective_roles")
-  position            String?          @map("position")
-  jobFamily           String?          @map("job_family")
-  immediateSupervisor String?          @map("immediate_supervisor")
-  immediateManager    String?          @map("immediate_manager")
-  createdAt           DateTime         @default(now()) @map("created_at")
-  createdBy           String           @map("created_by")
-  updatedAt           DateTime         @updatedAt @map("updated_at")
-  updatedBy           String?          @map("updated_by")
-  deletedAt           DateTime?        @map("deleted_at")
-  deletedBy           String?          @map("deleted_by")
-  orgUnit             OrganizationUnit @relation(fields: [orgUnitId], references: [id])
-  approvalHeaders     ApprovalHeader[] @relation("ApproverL1Relation")
-  bookings            Booking[]
-  approverL1          Employee?        @relation("Hierarchy", fields: [approverL1Id], references: [employeeId])
-  subordinates        Employee[]       @relation("Hierarchy")
+  id                  Int       @id @default(autoincrement())
+  employeeId          String    @unique @map("employee_id")
+  fullName            String    @map("full_name")
+  email               String?   @unique @map("email")
+  orgUnitId           Int       @map("org_unit_id")
+  costCenter          String?   @map("cost_center")
+  isActive            Boolean   @default(true) @map("is_active")
+  effectiveFrom       DateTime  @map("effective_from")
+  approverL1Id        String?   @map("approver_l1_id")
+  effectiveRoles      Role[]
+  position            String?   @map("position")
+  jobFamily           String?   @map("job_family")
+  immediateSupervisor String?   @map("immediate_supervisor")
+  immediateManager    String?   @map("immediate_manager")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  createdBy           String    @map("created_by")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  updatedBy           String?   @map("updated_by")
+  deletedAt           DateTime? @map("deleted_at")
+  deletedBy           String?   @map("deleted_by")
+
+  // RBAC Relations
+  userRoles     UserRole[]
+  tempRoles     TempRole[]
+  rlsFilters    RLSFilter[]
+  rbacSnapshots RBACSnapshot[]
+
+  // Existing relations
+  orgUnit         OrganizationUnit @relation(fields: [orgUnitId], references: [id])
+  approvalHeaders ApprovalHeader[] @relation("ApproverL1Relation")
+  bookings        Booking[]
+  approverL1      Employee?        @relation("Hierarchy", fields: [approverL1Id], references: [employeeId])
+  subordinates    Employee[]       @relation("Hierarchy")
 
   @@map("employee")
 }
@@ -830,4 +838,249 @@ model CostItem {
   costSet      CostSet          @relation(fields: [costSetId], references: [id])
 
   @@map("cost_item")
+}
+
+// ===========================================
+// RBAC (Role-Based Access Control) Models
+// ===========================================
+
+enum RBACStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+  REVOKED
+}
+
+enum TempRoleStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum PolicyChangeAction {
+  CREATE
+  UPDATE
+  PUBLISH
+  RETIRE
+  REVOKE
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  module      String   @map("module") // e.g., "booking", "vehicle", "finance"
+  action      String   @map("action") // e.g., "create", "read", "update", "approve", "close"
+  resource    String?  @map("resource") // specific resource identifier
+  description String?  @map("description")
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+
+  // Relations
+  rolePermissions RolePermission[]
+
+  @@unique([module, action, resource])
+  @@map("permission")
+}
+
+model RBACRole {
+  id          String   @id @default(uuid())
+  name        String   @unique @map("name") // e.g., "USER", "LEADER", "GA"
+  displayName String   @map("display_name") // e.g., "User", "Atasan", "GA"
+  description String?  @map("description")
+  level       Int      @map("level") // hierarchy level for precedence
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+
+  // Relations
+  rolePermissions    RolePermission[]
+  userRoles          UserRole[]
+  roleMatrixMappings RoleMatrixMapping[]
+  sodRules           SoDRule[]           @relation("RoleSoDRules")
+  conflictingRoles   SoDRule[]           @relation("ConflictingRoles")
+  tempRoles          TempRole[]
+
+  @@map("rbac_role")
+}
+
+model RolePermission {
+  id           String   @id @default(uuid())
+  roleId       String   @map("role_id")
+  permissionId String   @map("permission_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  createdBy    String   @map("created_by")
+
+  // Relations
+  role       RBACRole   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permission")
+}
+
+model RoleMatrix {
+  id             String     @id @default(uuid())
+  version        String     @unique @map("version") // e.g., "v1.0.0"
+  name           String     @map("name")
+  description    String?    @map("description")
+  status         RBACStatus @default(DRAFT) @map("status")
+  permissionHash String     @map("permission_hash") // hash of all permissions for change detection
+  effectiveFrom  DateTime   @map("effective_from")
+  effectiveTo    DateTime?  @map("effective_to")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  createdBy      String     @map("created_by")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+  updatedBy      String?    @map("updated_by")
+
+  // Two-Person Rule fields
+  editorId   String?   @map("editor_id") // who created/edited
+  reviewerId String?   @map("reviewer_id") // who approved
+  reviewedAt DateTime? @map("reviewed_at")
+
+  // Relations
+  mappings  RoleMatrixMapping[]
+  snapshots RBACSnapshot[]
+
+  @@map("role_matrix")
+}
+
+model RoleMatrixMapping {
+  id           String @id @default(uuid())
+  roleMatrixId String @map("role_matrix_id")
+  roleId       String @map("role_id")
+
+  // HRIS attribute matching criteria
+  orgUnitCode      String? @map("org_unit_code") // ORGANIZATION_UNIT from HRIS
+  orgUnitPattern   String? @map("org_unit_pattern") // regex pattern for org unit
+  division         String? @map("division") // DIVISION from HRIS
+  department       String? @map("department") // DEPARTMENT from HRIS
+  costCenter       String? @map("cost_center") // COST_CENTER from HRIS
+  position         String? @map("position") // EMPLOYEE_POSITION from HRIS
+  positionPattern  String? @map("position_pattern") // regex pattern for position
+  jobFamily        String? @map("job_family") // JOB_FAMILY from HRIS
+  jobFamilyPattern String? @map("job_family_pattern") // regex pattern for job family
+
+  // Matching priority (higher = more specific)
+  priority Int @default(0) @map("priority")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String   @map("created_by")
+
+  // Relations
+  roleMatrix RoleMatrix @relation(fields: [roleMatrixId], references: [id], onDelete: Cascade)
+  role       RBACRole   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@map("role_matrix_mapping")
+}
+
+model SoDRule {
+  id                String   @id @default(uuid())
+  name              String   @unique @map("name")
+  description       String?  @map("description")
+  roleId            String   @map("role_id") // primary role
+  conflictingRoleId String   @map("conflicting_role_id") // role that cannot be held together
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  createdBy         String   @map("created_by")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  updatedBy         String?  @map("updated_by")
+
+  // Relations
+  role            RBACRole @relation("RoleSoDRules", fields: [roleId], references: [id])
+  conflictingRole RBACRole @relation("ConflictingRoles", fields: [conflictingRoleId], references: [id])
+
+  @@unique([roleId, conflictingRoleId])
+  @@map("sod_rule")
+}
+
+model UserRole {
+  id            String    @id @default(uuid())
+  employeeId    String    @map("employee_id")
+  roleId        String    @map("role_id")
+  assignedBy    String    @map("assigned_by")
+  assignedAt    DateTime  @default(now()) @map("assigned_at")
+  expiresAt     DateTime? @map("expires_at") // for temporary roles
+  reason        String?   @map("reason") // reason for assignment
+  isActive      Boolean   @default(true) @map("is_active")
+  deactivatedAt DateTime? @map("deactivated_at")
+  deactivatedBy String?   @map("deactivated_by")
+
+  // Relations
+  employee Employee @relation(fields: [employeeId], references: [employeeId])
+  role     RBACRole @relation(fields: [roleId], references: [id])
+
+  @@unique([employeeId, roleId])
+  @@map("user_role")
+}
+
+model TempRole {
+  id           String         @id @default(uuid())
+  employeeId   String         @map("employee_id")
+  roleId       String         @map("role_id")
+  reason       String         @map("reason") // mandatory reason for temp role
+  tempRoleEnd  DateTime       @map("temp_role_end") // expiration date
+  assignedBy   String         @map("assigned_by")
+  assignedAt   DateTime       @default(now()) @map("assigned_at")
+  status       TempRoleStatus @default(ACTIVE) @map("status")
+  revokedAt    DateTime?      @map("revoked_at")
+  revokedBy    String?        @map("revoked_by")
+  revokeReason String?        @map("revoke_reason")
+
+  // Relations
+  employee Employee @relation(fields: [employeeId], references: [employeeId])
+  role     RBACRole @relation(fields: [roleId], references: [id])
+
+  @@map("temp_role")
+}
+
+model RLSFilter {
+  id          String   @id @default(uuid())
+  employeeId  String   @map("employee_id")
+  filterType  String   @map("filter_type") // "plant", "division", "org_unit"
+  filterKey   String   @map("filter_key") // e.g., "plant_code", "division_name"
+  filterValue String   @map("filter_value") // e.g., "PLANT001", "IT Division"
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+
+  // Relations
+  employee Employee @relation(fields: [employeeId], references: [employeeId])
+
+  @@map("rls_filter")
+}
+
+model RBACSnapshot {
+  id           String @id @default(uuid())
+  employeeId   String @map("employee_id")
+  snapshotType String @map("snapshot_type") // "LOGIN", "SYNC", "MANUAL_ASSIGN", "TEMP_ROLE", "POLICY_CHANGE"
+  action       String @map("action") // "GRANT", "REVOKE", "UPDATE"
+
+  // Before/After state
+  rolesBefore       Json? @map("roles_before") // array of role names
+  rolesAfter        Json? @map("roles_after") // array of role names
+  permissionsBefore Json? @map("permissions_before") // array of permission objects
+  permissionsAfter  Json? @map("permissions_after") // array of permission objects
+
+  // Change metadata
+  changeReason String?  @map("change_reason")
+  changedBy    String   @map("changed_by")
+  changedAt    DateTime @default(now()) @map("changed_at")
+
+  // Policy change tracking
+  policyVersion      String?             @map("policy_version") // RoleMatrix version
+  policyChangeAction PolicyChangeAction? @map("policy_change_action")
+
+  // Audit retention (5 years minimum)
+  retainUntil DateTime @map("retain_until") // calculated as changedAt + 5 years
+
+  // Relations
+  employee     Employee    @relation(fields: [employeeId], references: [employeeId])
+  roleMatrix   RoleMatrix? @relation(fields: [roleMatrixId], references: [id])
+  roleMatrixId String?
+
+  @@map("rbac_snapshot")
 }

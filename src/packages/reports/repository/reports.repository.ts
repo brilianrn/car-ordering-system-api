@@ -3,15 +3,15 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import Redis from 'ioredis';
 import { clientDb } from '../../../shared/utils';
 import {
-  AuditEvent,
-  ChartData,
-  CostMetrics,
-  FinancialPipeline,
-  RecapData,
-  ReportFilters,
-  SLAMetrics,
-  UserContext,
-  UtilizationMetrics,
+    AuditEvent,
+    ChartData,
+    CostMetrics,
+    FinancialPipeline,
+    RecapData,
+    ReportFilters,
+    SLAMetrics,
+    UserContext,
+    UtilizationMetrics,
 } from '../domain/types';
 import { ReportsRepositoryPort } from '../ports/repository.port';
 
@@ -25,7 +25,7 @@ export class ReportsRepository implements ReportsRepositoryPort {
   }
 
   async getUserContext(userId: string): Promise<UserContext | null> {
-    const employee = await this.db.employee.findFirst({
+    const employee = await this.db.employee.findUnique({
       where: { employeeId: userId },
       include: { orgUnit: true },
     });

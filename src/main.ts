@@ -1,14 +1,16 @@
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import 'dotenv/config';
+import { config } from 'dotenv';
 import { json, urlencoded } from 'express';
 import { AppModule } from './modules';
 import { SchedulerPackageModule } from './modules/scheduler.module';
 import { WorkerModule } from './modules/worker.module';
 import { AllExceptionsFilter } from './shared/utils';
 
-async function bootstrap() {
+config({ override: true });
+
+const bootstrap = async () => {
   const mode = process.env.MODE;
 
   console.log(`🚀 COS Backend starting in MODE = ${mode?.toUpperCase()}`);
