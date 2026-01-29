@@ -13,6 +13,8 @@ export enum ERoutes {
   COST_VARIABLE = `${EPrefix.V1}/cost-variable`,
   CATEGORY = `${EPrefix.V1}/category`,
   PARAM_SET = `${EPrefix.V1}/params`,
+  RBAC = `${EPrefix.V1}/rbac`,
+  CARPOOL = `${EPrefix.V1}/carpool`,
 }
 
 export const authRoute = {

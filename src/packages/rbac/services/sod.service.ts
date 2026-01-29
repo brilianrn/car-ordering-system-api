@@ -1,37 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { PrismaClient, Role } from '@prisma/client';
 import { clientDb } from '../../../shared/utils';
-import { RBACError } from '../domain/types';
-
-export interface SoDRuleInfo {
-  id: string;
-  name: string;
-  description?: string;
-  primaryRole: {
-    id: string;
-    name: Role;
-    displayName: string;
-  };
-  conflictingRole: {
-    id: string;
-    name: Role;
-    displayName: string;
-  };
-  isActive: boolean;
-}
-
-export interface SoDValidationResult {
-  isValid: boolean;
-  violations: SoDRuleInfo[];
-  errorMessage?: string;
-}
-
-export interface CreateSoDRuleRequest {
-  name: string;
-  description?: string;
-  primaryRoleId: string;
-  conflictingRoleId: string;
-}
+import { IUsecaseResponse } from '../../../shared/utils/rest-api/types';
+import { ISoDRuleListResponse, ISoDViolationListResponse } from '../domain/response';
+import { CreateSoDRuleRequest, SoDRuleInfo, SoDValidationResult } from '../domain/types';
 
 @Injectable()
 export class SoDService {
@@ -41,30 +13,37 @@ export class SoDService {
   /**
    * Validate if a set of roles violates any SoD rules
    */
-  async validateRoles(roles: Role[]): Promise<SoDValidationResult> {
+  async validateRoles(roles: Role[]): Promise<IUsecaseResponse<SoDValidationResult>> {
     try {
-      const violations: SoDRuleInfo[] = [];
+      const result: SoDValidationResult = {
+        isValid: true,
+        sodViolations: [],
+        errors: [],
+        warnings: [],
+      };
 
       // Check each pair of roles
       for (let i = 0; i < roles.length; i++) {
         for (let j = i + 1; j < roles.length; j++) {
           const violation = await this.checkRolePair(roles[i], roles[j]);
           if (violation) {
-            violations.push(violation);
+            result.sodViolations.push(violation);
           }
         }
       }
 
+      result.isValid = result.sodViolations.length === 0;
+
       return {
-        isValid: violations.length === 0,
-        violations,
+        data: result,
       };
     } catch (error) {
       this.logger.error(`Failed to validate roles: ${error.message}`, error.stack);
       return {
-        isValid: false,
-        violations: [],
-        errorMessage: `Validation failed: ${error.message}`,
+        error: {
+          message: error.message || 'Validation failed',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
       };
     }
   }
@@ -95,28 +74,13 @@ export class SoDService {
       return null;
     }
 
-    return {
-      id: rule.id,
-      name: rule.name,
-      description: rule.description,
-      primaryRole: {
-        id: rule.role.id,
-        name: rule.role.name,
-        displayName: rule.role.displayName,
-      },
-      conflictingRole: {
-        id: rule.conflictingRole.id,
-        name: rule.conflictingRole.name,
-        displayName: rule.conflictingRole.displayName,
-      },
-      isActive: rule.isActive,
-    };
+    return this.mapSoDRuleToDomain(rule);
   }
 
   /**
    * Create a new SoD rule
    */
-  async createSoDRule(request: CreateSoDRuleRequest, createdBy: string): Promise<SoDRuleInfo> {
+  async createSoDRule(request: CreateSoDRuleRequest, createdBy: string): Promise<IUsecaseResponse<SoDRuleInfo>> {
     try {
       this.logger.log(`Creating SoD rule: ${request.name}`);
 
@@ -127,11 +91,21 @@ export class SoDService {
       ]);
 
       if (!primaryRole) {
-        throw new RBACError(`Primary role ${request.primaryRoleId} not found`, 'ROLE_NOT_FOUND');
+        return {
+          error: {
+            message: `Primary role ${request.primaryRoleId} not found`,
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
       }
 
       if (!conflictingRole) {
-        throw new RBACError(`Conflicting role ${request.conflictingRoleId} not found`, 'ROLE_NOT_FOUND');
+        return {
+          error: {
+            message: `Conflicting role ${request.conflictingRoleId} not found`,
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
       }
 
       // Check if rule already exists (bidirectional)
@@ -149,7 +123,12 @@ export class SoDService {
       });
 
       if (existingRule) {
-        throw new RBACError('SoD rule already exists for this role pair', 'RULE_EXISTS');
+        return {
+          error: {
+            message: 'SoD rule already exists for this role pair',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
       }
 
       // Create the rule
@@ -168,19 +147,22 @@ export class SoDService {
       });
 
       this.logger.log(`SoD rule created: ${rule.name}`);
-      return this.mapSoDRuleToDomain(rule);
+      return { data: this.mapSoDRuleToDomain(rule) };
     } catch (error) {
       this.logger.error(`Failed to create SoD rule: ${error.message}`, error.stack);
-      throw error instanceof RBACError
-        ? error
-        : new RBACError(`Failed to create SoD rule: ${error.message}`, 'CREATE_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to create SoD rule',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Get all active SoD rules
    */
-  async getActiveSoDRules(): Promise<SoDRuleInfo[]> {
+  async getActiveSoDRules(): Promise<IUsecaseResponse<ISoDRuleListResponse>> {
     try {
       const rules = await (this.db as any).soDRule.findMany({
         where: { isActive: true },
@@ -191,24 +173,38 @@ export class SoDService {
         orderBy: { createdAt: 'desc' },
       });
 
-      return rules.map((rule) => this.mapSoDRuleToDomain(rule));
+      return {
+        data: {
+          data: rules.map((rule: any) => this.mapSoDRuleToDomain(rule)),
+        },
+      };
     } catch (error) {
       this.logger.error(`Failed to get SoD rules: ${error.message}`, error.stack);
-      throw new RBACError(`Failed to get SoD rules: ${error.message}`, 'GET_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to get SoD rules',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Deactivate an SoD rule
    */
-  async deactivateSoDRule(ruleId: string, deactivatedBy: string): Promise<void> {
+  async deactivateSoDRule(ruleId: string, deactivatedBy: string): Promise<IUsecaseResponse<void>> {
     try {
       const rule = await (this.db as any).soDRule.findUnique({
         where: { id: ruleId },
       });
 
       if (!rule) {
-        throw new RBACError('SoD rule not found', 'RULE_NOT_FOUND');
+        return {
+          error: {
+            message: 'SoD rule not found',
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
       }
 
       await (this.db as any).soDRule.update({
@@ -220,22 +216,24 @@ export class SoDService {
       });
 
       this.logger.log(`SoD rule deactivated: ${rule.name}`);
+      return { data: undefined };
     } catch (error) {
       this.logger.error(`Failed to deactivate SoD rule: ${error.message}`, error.stack);
-      throw error instanceof RBACError
-        ? error
-        : new RBACError(`Failed to deactivate SoD rule: ${error.message}`, 'DEACTIVATE_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to deactivate SoD rule',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Get SoD violations for a specific employee
    */
-  async getEmployeeSoDViolations(employeeId: string): Promise<SoDValidationResult> {
+  async getEmployeeSoDViolations(employeeId: string): Promise<IUsecaseResponse<SoDValidationResult>> {
     try {
       // Get current effective roles for the employee
-      // This would typically come from RBACService.calculateEffectiveRoles
-      // For now, we'll get from user roles + temp roles
       const userRoles = await (this.db as any).userRole.findMany({
         where: {
           employeeId,
@@ -261,9 +259,10 @@ export class SoDService {
     } catch (error) {
       this.logger.error(`Failed to get employee SoD violations: ${error.message}`, error.stack);
       return {
-        isValid: false,
-        violations: [],
-        errorMessage: `Failed to check violations: ${error.message}`,
+        error: {
+          message: error.message || 'Failed to check violations',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
       };
     }
   }
@@ -271,13 +270,7 @@ export class SoDService {
   /**
    * Get all employees with SoD violations
    */
-  async getAllSoDViolations(limit: number = 100): Promise<
-    Array<{
-      employeeId: string;
-      employeeName: string;
-      violations: SoDRuleInfo[];
-    }>
-  > {
+  async getAllSoDViolations(limit: number = 100): Promise<IUsecaseResponse<ISoDViolationListResponse>> {
     try {
       // Get all employees with roles
       const employeesWithRoles = await (this.db as any).employee.findMany({
@@ -318,26 +311,35 @@ export class SoDService {
         const uniqueRoles = [...new Set(allRoles)];
         const validation = await this.validateRoles(uniqueRoles);
 
-        if (!validation.isValid) {
+        if (validation.data && !validation.data.isValid) {
           violations.push({
             employeeId: employee.employeeId,
             employeeName: employee.fullName,
-            violations: validation.violations,
+            violations: validation.data.sodViolations,
           });
         }
       }
 
-      return violations;
+      return {
+        data: {
+          data: violations,
+        },
+      };
     } catch (error) {
       this.logger.error(`Failed to get all SoD violations: ${error.message}`, error.stack);
-      throw new RBACError(`Failed to get SoD violations: ${error.message}`, 'GET_VIOLATIONS_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to get SoD violations',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Get SoD rules that would be affected by role changes
    */
-  async getAffectedSoDRules(roleIds: string[]): Promise<SoDRuleInfo[]> {
+  async getAffectedSoDRules(roleIds: string[]): Promise<IUsecaseResponse<ISoDRuleListResponse>> {
     try {
       const rules = await (this.db as any).soDRule.findMany({
         where: {
@@ -350,10 +352,19 @@ export class SoDService {
         },
       });
 
-      return rules.map((rule) => this.mapSoDRuleToDomain(rule));
+      return {
+        data: {
+          data: rules.map((rule: any) => this.mapSoDRuleToDomain(rule)),
+        },
+      };
     } catch (error) {
       this.logger.error(`Failed to get affected SoD rules: ${error.message}`, error.stack);
-      throw new RBACError(`Failed to get affected SoD rules: ${error.message}`, 'GET_AFFECTED_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to get affected SoD rules',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
@@ -362,15 +373,21 @@ export class SoDService {
       id: rule.id,
       name: rule.name,
       description: rule.description,
-      primaryRole: {
+      role: {
         id: rule.role.id,
         name: rule.role.name,
         displayName: rule.role.displayName,
+        description: rule.role.description,
+        level: rule.role.level,
+        isActive: rule.role.isActive,
       },
       conflictingRole: {
         id: rule.conflictingRole.id,
         name: rule.conflictingRole.name,
         displayName: rule.conflictingRole.displayName,
+        description: rule.conflictingRole.description,
+        level: rule.conflictingRole.level,
+        isActive: rule.conflictingRole.isActive,
       },
       isActive: rule.isActive,
     };

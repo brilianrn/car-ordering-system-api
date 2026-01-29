@@ -1,14 +1,16 @@
+import dotenv from 'dotenv';
+import * as path from 'path';
+dotenv.config({ path: path.join(process.cwd(), '.env') });
+
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { config } from 'dotenv';
 import { json, urlencoded } from 'express';
 import { AppModule } from './modules';
 import { SchedulerPackageModule } from './modules/scheduler.module';
 import { WorkerModule } from './modules/worker.module';
 import { AllExceptionsFilter } from './shared/utils';
 
-config({ override: true });
 
 const bootstrap = async () => {
   const mode = process.env.MODE;

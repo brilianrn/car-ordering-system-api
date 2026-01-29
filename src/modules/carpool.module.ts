@@ -1,3 +1,4 @@
+import { CarpoolCandidatesController } from '@/packages/carpool/controller/carpool-candidates.controller';
 import { CarpoolController } from '@/packages/carpool/controller/carpool.controller';
 import { CarpoolRepository } from '@/packages/carpool/repository/carpool.repository';
 import { CarpoolAuditService } from '@/packages/carpool/services/carpool-audit.service';
@@ -10,7 +11,7 @@ import { GeospatialService } from '@/shared/services/geospatial.service';
 import { Module } from '@nestjs/common';
 
 @Module({
-  controllers: [CarpoolController],
+  controllers: [CarpoolController, CarpoolCandidatesController],
   providers: [
     CarpoolUseCase,
     CarpoolRepository,

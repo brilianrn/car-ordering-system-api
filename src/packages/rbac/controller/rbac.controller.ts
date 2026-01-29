@@ -1,4 +1,19 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Param, Post, Put, Query, Request } from '@nestjs/common';
+import { validationMessage } from '@/shared/constants/validation-message';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Param,
+  Post,
+  Put,
+  Query,
+  Res,
+} from '@nestjs/common';
+import { Response } from 'express';
 
 import { RBACService } from '../services/rbac.service';
 import { RoleMatrixService } from '../services/role-matrix.service';
@@ -7,21 +22,16 @@ import { SoDService } from '../services/sod.service';
 import {
   AssignTempRoleDto,
   CalculateRolesDto,
-  CalculateRolesResponseDto,
   CreateRoleMatrixDto,
   CreateSoDRuleDto,
   PublishRoleMatrixDto,
   RevokeTempRoleDto,
-  RoleMatrixInfoDto,
-  RoleMatrixMappingDto,
-  SoDRuleInfoDto,
-  SoDValidationResultDto,
-  UserRBACInfoDto,
 } from '../dto';
 
-import { RBACError } from '../domain/types';
+import { ERoutes } from '@/shared/constants/routes';
+import { response } from '@/shared/utils/rest-api/response';
 
-@Controller('rbac')
+@Controller(ERoutes.RBAC)
 export class RBACController {
   constructor(
     @Inject('RBACService')
@@ -37,95 +47,165 @@ export class RBACController {
   // ===========================================
   // USER RBAC INFO & ROLE CALCULATION
   // ===========================================
+  @Get('users')
+  async listUsers(
+    @Res() res: Response,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('roles') roles?: string,
+  ) {
+    const pageNum = page ? parseInt(page) : 1;
+    const limitNum = limit ? parseInt(limit) : 10;
+    const result = await this.rbacService.listUsers(pageNum, limitNum, roles);
 
-  @Get('user/:employeeId')
-  async getUserRBACInfo(@Param('employeeId') employeeId: string): Promise<UserRBACInfoDto> {
-    try {
-      const result = await this.rbacService.getUserRBACInfo(employeeId);
-      return {
-        employeeId: result.employeeId,
-        currentRoles: result.currentRoles.map((role) => ({
-          id: role.id,
-          roleId: role.roleId,
-          role: {
-            id: role.role.name.toString(),
-            name: role.role.name,
-            displayName: role.role.displayName,
-            level: role.role.level,
-            isActive: role.role.isActive,
-          },
-          assignedBy: role.assignedBy,
-          assignedAt: role.assignedAt,
-          expiresAt: role.expiresAt,
-          reason: role.reason,
-          isActive: role.isActive,
-        })),
-        tempRoles: result.tempRoles.map((role) => ({
-          id: role.id,
-          roleId: role.roleId,
-          role: {
-            id: role.role.name.toString(),
-            name: role.role.name,
-            displayName: role.role.displayName,
-            level: role.role.level,
-            isActive: role.role.isActive,
-          },
-          reason: role.reason,
-          tempRoleEnd: role.tempRoleEnd,
-          assignedBy: role.assignedBy,
-          assignedAt: role.assignedAt,
-          status: role.status,
-        })),
-        effectiveRoles: result.effectiveRoles,
-        effectivePermissions: result.effectivePermissions,
-        rlsFilters: result.rlsFilters,
-        lastCalculated: result.lastCalculated,
-        roleMatrixVersion: result.roleMatrixVersion,
-      };
-    } catch (error) {
-      throw new RBACError(`Failed to get user RBAC info: ${error.message}`, 'GET_USER_FAILED');
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    return response[HttpStatus.OK](res, {
+      message: validationMessage('Users')[200](),
+      data: result.data,
+    });
   }
 
-  @Post('calculate-roles')
-  @HttpCode(HttpStatus.OK)
-  async calculateRoles(@Body() dto: CalculateRolesDto): Promise<CalculateRolesResponseDto> {
-    try {
-      const result = await this.rbacService.calculateEffectiveRoles({
-        employeeId: dto.employeeId,
-        hrisAttributes: dto.hrisAttributes || {},
-      });
+  @Get('audit-logs')
+  async listAuditLogs(@Res() res: Response, @Query('page') page?: string, @Query('limit') limit?: string) {
+    const pageNum = page ? parseInt(page) : 1;
+    const limitNum = limit ? parseInt(limit) : 20;
+    const result = await this.rbacService.listAuditLogs(pageNum, limitNum);
 
-      return {
-        employeeId: result.employeeId,
-        effectiveRoles: result.effectiveRoles,
-        permissions: result.permissions,
-        rlsFilters: result.rlsFilters,
-        sodViolations: result.sodViolations.map((v: any) => ({
-          id: v.id,
-          name: v.name,
-          description: v.description,
-          primaryRole: {
-            id: v.primaryRole?.id || v.role?.id,
-            name: v.primaryRole?.name || v.role?.name,
-            displayName: v.primaryRole?.displayName || v.role?.displayName,
-            level: v.primaryRole?.level || v.role?.level || 0,
-            isActive: v.primaryRole?.isActive || v.role?.isActive || true,
-          },
-          conflictingRole: {
-            id: v.conflictingRole.id,
-            name: v.conflictingRole.name,
-            displayName: v.conflictingRole.displayName,
-            level: v.conflictingRole.level || 0,
-            isActive: v.conflictingRole.isActive || true,
-          },
-          isActive: v.isActive,
-        })),
-        roleMatrixVersion: result.roleMatrixVersion,
-      };
-    } catch (error) {
-      throw new RBACError(`Failed to calculate roles: ${error.message}`, 'CALCULATE_FAILED');
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    return response[HttpStatus.OK](res, {
+      message: validationMessage('Audit logs')[200](),
+      data: result.data,
+    });
+  }
+
+  @Get('user')
+  async getMyRBACInfo(@Res() res: Response, @Headers('x-user-id') userId: string): Promise<any> {
+    if (!userId) {
+      return response[HttpStatus.BAD_REQUEST](res, {
+        message: 'Employee ID is required or x-user-id header must be provided',
+      });
+    }
+    return this.getUserRBACInfo(res, userId);
+  }
+
+  @Get('user/:employeeId')
+  async getUserRBACInfo(@Res() res: Response, @Param('employeeId') employeeId: string): Promise<any> {
+    const result = await this.rbacService.getUserRBACInfo(employeeId);
+
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
+    }
+
+    const data = result.data!;
+    const mapped = {
+      employeeId: data.employeeId,
+      fullName: data.fullName,
+      lastLogin: data.lastLogin,
+      currentRoles: data.currentRoles.map((role) => ({
+        id: role.id,
+        roleId: role.roleId,
+        role: {
+          id: role.role.id,
+          name: role.role.name,
+          displayName: role.role.displayName,
+          level: role.role.level,
+          isActive: role.role.isActive,
+        },
+        assignedBy: role.assignedBy,
+        assignedAt: role.assignedAt,
+        expiresAt: role.expiresAt || undefined,
+        reason: role.reason || undefined,
+        isActive: role.isActive,
+      })),
+      tempRoles: data.tempRoles.map((role) => ({
+        id: role.id,
+        employeeId: role.employeeId,
+        roleId: role.roleId,
+        role: {
+          id: role.role.id,
+          name: role.role.name,
+          displayName: role.role.displayName,
+          level: role.role.level,
+          isActive: role.role.isActive,
+        },
+        reason: role.reason,
+        tempRoleEnd: role.tempRoleEnd,
+        assignedBy: role.assignedBy,
+        assignedAt: role.assignedAt,
+        status: role.status,
+      })),
+      effectiveRoles: data.effectiveRoles,
+      effectivePermissions: data.effectivePermissions,
+      rlsFilters: data.rlsFilters,
+      lastCalculated: data.lastCalculated,
+      roleMatrixVersion: data.roleMatrixVersion,
+    };
+
+    return response[HttpStatus.OK](res, {
+      message: validationMessage('User RBAC info')[200](),
+      data: mapped,
+    });
+  }
+
+  @Post('calculate')
+  @HttpCode(HttpStatus.OK)
+  async calculateRoles(@Res() res: Response, @Body() dto: CalculateRolesDto): Promise<any> {
+    const result = await this.rbacService.calculateEffectiveRoles({
+      employeeId: dto.employeeId,
+      hrisAttributes: dto.hrisAttributes || {},
+    });
+
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
+    }
+
+    const data = result.data!;
+    const mapped = {
+      employeeId: data.employeeId,
+      effectiveRoles: data.effectiveRoles,
+      permissions: data.permissions,
+      rlsFilters: data.rlsFilters,
+      sodViolations: data.sodViolations.map((v) => ({
+        id: v.id,
+        name: v.name,
+        description: v.description,
+        primaryRole: {
+          id: v.role?.id,
+          name: v.role?.name,
+          displayName: v.role?.displayName,
+          level: v.role?.level || 0,
+          isActive: v.role?.isActive ?? true,
+        },
+        conflictingRole: {
+          id: v.conflictingRole?.id,
+          name: v.conflictingRole?.name,
+          displayName: v.conflictingRole?.displayName,
+          level: v.conflictingRole?.level || 0,
+          isActive: v.conflictingRole?.isActive ?? true,
+        },
+        isActive: v.isActive,
+      })),
+      roleMatrixVersion: data.roleMatrixVersion,
+    };
+
+    return response[HttpStatus.OK](res, {
+      message: validationMessage('Roles')[200](),
+      data: mapped,
+    });
   }
 
   // ===========================================
@@ -134,59 +214,71 @@ export class RBACController {
 
   @Post('temp-roles')
   @HttpCode(HttpStatus.CREATED)
-  async assignTempRole(@Body() dto: AssignTempRoleDto, @Request() req: any) {
-    try {
-      const assignedBy = req.user?.employeeId || 'SYSTEM';
-      const tempRoleEnd = new Date(dto.tempRoleEnd);
+  async assignTempRole(@Res() res: Response, @Body() dto: AssignTempRoleDto, @Headers('x-user-id') userId: string) {
+    const assignedBy = userId || 'SYSTEM';
+    const tempRoleEnd = new Date(dto.tempRoleEnd);
 
-      await this.rbacService.assignTempRole(
-        {
-          employeeId: dto.employeeId,
-          roleId: dto.roleId,
-          reason: dto.reason,
-          tempRoleEnd,
-        },
-        assignedBy,
-      );
+    const result = await this.rbacService.assignTempRole(
+      {
+        employeeId: dto.employeeId,
+        roleId: dto.roleId,
+        reason: dto.reason,
+        tempRoleEnd,
+      },
+      assignedBy,
+    );
 
-      return { message: 'Temporary role assigned successfully' };
-    } catch (error) {
-      throw new RBACError(`Failed to assign temp role: ${error.message}`, 'ASSIGN_FAILED');
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    return response[HttpStatus.CREATED](res, {
+      message: 'Temporary role assigned successfully',
+      data: result.data,
+    });
   }
 
   @Put('temp-roles/revoke')
   @HttpCode(HttpStatus.OK)
-  async revokeTempRole(@Body() dto: RevokeTempRoleDto, @Request() req: any) {
-    try {
-      const revokedBy = req.user?.employeeId || 'SYSTEM';
+  async revokeTempRole(@Res() res: Response, @Body() dto: RevokeTempRoleDto, @Headers('x-user-id') userId: string) {
+    const revokedBy = userId || 'SYSTEM';
 
-      await this.rbacService.revokeTempRole(
-        {
-          tempRoleId: dto.tempRoleId,
-          revokeReason: dto.revokeReason || 'Revoked by admin',
-        },
-        revokedBy,
-      );
+    const result = await this.rbacService.revokeTempRole(
+      {
+        tempRoleId: dto.tempRoleId,
+        revokeReason: dto.revokeReason || 'Revoked by admin',
+      },
+      revokedBy,
+    );
 
-      return { message: 'Temporary role revoked successfully' };
-    } catch (error) {
-      throw new RBACError(`Failed to revoke temp role: ${error.message}`, 'REVOKE_FAILED');
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    return response[HttpStatus.OK](res, {
+      message: 'Temporary role revoked successfully',
+    });
   }
 
   @Post('temp-roles/cleanup')
   @HttpCode(HttpStatus.OK)
-  async cleanupExpiredTempRoles() {
-    try {
-      const cleanedCount = await this.rbacService.cleanupExpiredTempRoles();
-      return {
-        message: `Cleanup completed. ${cleanedCount} expired temporary roles cleaned up.`,
-        cleanedCount,
-      };
-    } catch (error) {
-      throw new RBACError(`Cleanup failed: ${error.message}`, 'CLEANUP_FAILED');
+  async cleanupExpiredTempRoles(@Res() res: Response) {
+    const result = await this.rbacService.cleanupExpiredTempRoles();
+
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    return response[HttpStatus.OK](res, {
+      message: `Cleanup completed. ${result.data} expired temporary roles cleaned up.`,
+      data: { cleanedCount: result.data },
+    });
   }
 
   // ===========================================
@@ -194,182 +286,221 @@ export class RBACController {
   // ===========================================
 
   @Get('role-matrices/active')
-  async getActiveRoleMatrix(): Promise<RoleMatrixInfoDto | null> {
-    try {
-      const matrix = await this.roleMatrixService.getActiveRoleMatrix();
-      return matrix
-        ? {
-            id: matrix.id,
-            version: matrix.version,
-            name: matrix.name,
-            description: matrix.description,
-            status: matrix.status,
-            permissionHash: matrix.permissionHash,
-            effectiveFrom: matrix.effectiveFrom,
-            effectiveTo: matrix.effectiveTo,
-            editorId: matrix.editorId,
-            reviewerId: matrix.reviewerId,
-            reviewedAt: matrix.reviewedAt,
-          }
-        : null;
-    } catch (error) {
-      throw new RBACError(`Failed to get active role matrix: ${error.message}`, 'GET_ACTIVE_FAILED');
+  async getActiveRoleMatrix(@Res() res: Response): Promise<any> {
+    const result = await this.roleMatrixService.getActiveRoleMatrix();
+
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    const matrix = result.data;
+    const mapped = matrix
+      ? {
+          id: matrix.id,
+          version: matrix.version,
+          name: matrix.name,
+          description: matrix.description,
+          status: matrix.status,
+          permissionHash: matrix.permissionHash,
+          effectiveFrom: matrix.effectiveFrom,
+          effectiveTo: matrix.effectiveTo,
+          editorId: matrix.editorId,
+          reviewerId: matrix.reviewerId,
+          reviewedAt: matrix.reviewedAt,
+        }
+      : undefined;
+
+    return response[HttpStatus.OK](res, {
+      message: validationMessage('Role matrix')[200](),
+      data: mapped,
+    });
   }
 
   @Get('role-matrices/:version')
-  async getRoleMatrixByVersion(@Param('version') version: string): Promise<RoleMatrixInfoDto | null> {
-    try {
-      const matrix = await this.roleMatrixService.getRoleMatrixByVersion(version);
-      return matrix
-        ? {
-            id: matrix.id,
-            version: matrix.version,
-            name: matrix.name,
-            description: matrix.description,
-            status: matrix.status,
-            permissionHash: matrix.permissionHash,
-            effectiveFrom: matrix.effectiveFrom,
-            effectiveTo: matrix.effectiveTo,
-            editorId: matrix.editorId,
-            reviewerId: matrix.reviewerId,
-            reviewedAt: matrix.reviewedAt,
-          }
-        : null;
-    } catch (error) {
-      throw new RBACError(`Failed to get role matrix: ${error.message}`, 'GET_MATRIX_FAILED');
+  async getRoleMatrixByVersion(@Res() res: Response, @Param('version') version: string): Promise<any> {
+    const result = await this.roleMatrixService.getRoleMatrixByVersion(version);
+
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    const matrix = result.data;
+    const mapped = matrix
+      ? {
+          id: matrix.id,
+          version: matrix.version,
+          name: matrix.name,
+          description: matrix.description,
+          status: matrix.status,
+          permissionHash: matrix.permissionHash,
+          effectiveFrom: matrix.effectiveFrom,
+          effectiveTo: matrix.effectiveTo,
+          editorId: matrix.editorId,
+          reviewerId: matrix.reviewerId,
+          reviewedAt: matrix.reviewedAt,
+        }
+      : undefined;
+
+    return response[HttpStatus.OK](res, {
+      message: validationMessage('Role matrix')[200](),
+      data: mapped,
+    });
   }
 
   @Get('role-matrices')
   async listRoleMatrices(
-    @Query('status') status?: string,
+    @Res() res: Response,
+    @Query('page') page?: string,
     @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
-  ): Promise<RoleMatrixInfoDto[]> {
-    try {
-      const statusEnum = status as any;
-      const limitNum = limit ? parseInt(limit) : 50;
-      const offsetNum = offset ? parseInt(offset) : 0;
+    @Query('status') status?: string,
+  ): Promise<any> {
+    const pageNum = page ? parseInt(page) : 1;
+    const limitNum = limit ? parseInt(limit) : 50;
+    const result = await this.roleMatrixService.listRoleMatrices(pageNum, limitNum, status as any);
 
-      const matrices = await this.roleMatrixService.listRoleMatrices(statusEnum, limitNum, offsetNum);
-      return matrices.map((matrix) => ({
-        id: matrix.id,
-        version: matrix.version,
-        name: matrix.name,
-        description: matrix.description,
-        status: matrix.status,
-        permissionHash: matrix.permissionHash,
-        effectiveFrom: matrix.effectiveFrom,
-        effectiveTo: matrix.effectiveTo,
-        editorId: matrix.editorId,
-        reviewerId: matrix.reviewerId,
-        reviewedAt: matrix.reviewedAt,
-      }));
-    } catch (error) {
-      throw new RBACError(`Failed to list role matrices: ${error.message}`, 'LIST_FAILED');
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    return response[HttpStatus.OK](res, {
+      message: validationMessage('Role matrices')[200](),
+      data: result.data,
+    });
   }
 
   @Post('role-matrices')
   @HttpCode(HttpStatus.CREATED)
-  async createRoleMatrix(@Body() dto: CreateRoleMatrixDto, @Request() req: any): Promise<RoleMatrixInfoDto> {
-    try {
-      const createdBy = req.user?.employeeId || 'SYSTEM';
-      const effectiveFrom = new Date(dto.effectiveFrom);
-      const effectiveTo = dto.effectiveTo ? new Date(dto.effectiveTo) : undefined;
+  async createRoleMatrix(
+    @Res() res: Response,
+    @Body() dto: CreateRoleMatrixDto,
+    @Headers('x-user-id') userId: string,
+  ): Promise<any> {
+    const createdBy = userId || 'SYSTEM';
+    const effectiveFrom = new Date(dto.effectiveFrom);
+    const effectiveTo = dto.effectiveTo ? new Date(dto.effectiveTo) : undefined;
 
-      const result = await this.roleMatrixService.createRoleMatrix(
-        {
-          version: dto.version,
-          name: dto.name,
-          description: dto.description,
-          mappings: dto.mappings,
-          effectiveFrom,
-          effectiveTo,
-        },
-        createdBy,
-      );
+    const result = await this.roleMatrixService.createRoleMatrix(
+      {
+        version: dto.version,
+        name: dto.name,
+        description: dto.description,
+        mappings: dto.mappings,
+        effectiveFrom,
+        effectiveTo,
+      },
+      createdBy,
+    );
 
-      return {
-        id: result.id,
-        version: result.version,
-        name: result.name,
-        description: result.description,
-        status: result.status,
-        permissionHash: result.permissionHash,
-        effectiveFrom: result.effectiveFrom,
-        effectiveTo: result.effectiveTo,
-        editorId: result.editorId,
-        reviewerId: result.reviewerId,
-        reviewedAt: result.reviewedAt,
-      };
-    } catch (error) {
-      throw new RBACError(`Failed to create role matrix: ${error.message}`, 'CREATE_FAILED');
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    const data = result.data!;
+    return response[HttpStatus.CREATED](res, {
+      message: validationMessage('Role matrix')[201](),
+      data: {
+        id: data.id,
+        version: data.version,
+        name: data.name,
+        description: data.description,
+        status: data.status,
+        permissionHash: data.permissionHash,
+        effectiveFrom: data.effectiveFrom,
+        effectiveTo: data.effectiveTo,
+        editorId: data.editorId,
+        reviewerId: data.reviewerId,
+        reviewedAt: data.reviewedAt,
+      },
+    });
   }
 
   @Post('role-matrices/:roleMatrixId/publish')
   @HttpCode(HttpStatus.OK)
   async publishRoleMatrix(
+    @Res() res: Response,
     @Param('roleMatrixId') roleMatrixId: string,
     @Body() dto: PublishRoleMatrixDto,
-  ): Promise<RoleMatrixInfoDto> {
-    try {
-      const result = await this.roleMatrixService.publishRoleMatrix(
-        {
-          roleMatrixId,
-          reviewerId: dto.reviewerId,
-        },
-        dto.reviewerId,
-      );
+    @Headers('x-user-id') userId: string,
+  ): Promise<any> {
+    const reviewerId = userId || dto.reviewerId;
+    const result = await this.roleMatrixService.publishRoleMatrix(
+      {
+        roleMatrixId,
+        reviewerId,
+      },
+      reviewerId,
+    );
 
-      return {
-        id: result.id,
-        version: result.version,
-        name: result.name,
-        description: result.description,
-        status: result.status,
-        permissionHash: result.permissionHash,
-        effectiveFrom: result.effectiveFrom,
-        effectiveTo: result.effectiveTo,
-        editorId: result.editorId,
-        reviewerId: result.reviewerId,
-        reviewedAt: result.reviewedAt,
-      };
-    } catch (error) {
-      throw new RBACError(`Failed to publish role matrix: ${error.message}`, 'PUBLISH_FAILED');
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    const data = result.data!;
+    return response[HttpStatus.OK](res, {
+      message: validationMessage('Role matrix')[200](),
+      data: {
+        id: data.id,
+        version: data.version,
+        name: data.name,
+        description: data.description,
+        status: data.status,
+        permissionHash: data.permissionHash,
+        effectiveFrom: data.effectiveFrom,
+        effectiveTo: data.effectiveTo,
+        editorId: data.editorId,
+        reviewerId: data.reviewerId,
+        reviewedAt: data.reviewedAt,
+      },
+    });
   }
 
   @Get('role-matrices/:roleMatrixId/mappings')
-  async getRoleMatrixMappings(@Param('roleMatrixId') roleMatrixId: string): Promise<RoleMatrixMappingDto[]> {
-    try {
-      const mappings = await this.roleMatrixService.getRoleMatrixMappings(roleMatrixId);
-      return mappings.map((mapping) => ({
-        id: mapping.id,
-        roleId: mapping.roleId,
-        role: {
-          id: mapping.role.name.toString(),
-          name: mapping.role.name,
-          displayName: mapping.role.displayName,
-          level: mapping.role.level,
-          isActive: mapping.role.isActive,
-        },
-        orgUnitCode: mapping.orgUnitCode,
-        orgUnitPattern: mapping.orgUnitPattern,
-        division: mapping.division,
-        department: mapping.department,
-        costCenter: mapping.costCenter,
-        position: mapping.position,
-        positionPattern: mapping.positionPattern,
-        jobFamily: mapping.jobFamily,
-        jobFamilyPattern: mapping.jobFamilyPattern,
-        priority: mapping.priority,
-      }));
-    } catch (error) {
-      throw new RBACError(`Failed to get mappings: ${error.message}`, 'GET_MAPPINGS_FAILED');
+  async getRoleMatrixMappings(@Res() res: Response, @Param('roleMatrixId') roleMatrixId: string): Promise<any> {
+    const result = await this.roleMatrixService.getRoleMatrixMappings(roleMatrixId);
+
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    const mappings = result.data!;
+    const mapped = mappings.map((mapping) => ({
+      id: mapping.id,
+      roleId: mapping.roleId,
+      role: {
+        id: mapping.role.id,
+        name: mapping.role.name,
+        displayName: mapping.role.displayName,
+        level: mapping.role.level,
+        isActive: mapping.role.isActive,
+      },
+      orgUnitCode: mapping.orgUnitCode,
+      orgUnitPattern: mapping.orgUnitPattern,
+      division: mapping.division,
+      department: mapping.department,
+      costCenter: mapping.costCenter,
+      position: mapping.position,
+      positionPattern: mapping.positionPattern,
+      jobFamily: mapping.jobFamily,
+      jobFamilyPattern: mapping.jobFamilyPattern,
+      priority: mapping.priority,
+    }));
+
+    return response[HttpStatus.OK](res, {
+      message: validationMessage('Mappings')[200](),
+      data: mapped,
+    });
   }
 
   // ===========================================
@@ -378,141 +509,90 @@ export class RBACController {
 
   @Post('sod-rules')
   @HttpCode(HttpStatus.CREATED)
-  async createSoDRule(@Body() dto: CreateSoDRuleDto, @Request() req: any): Promise<SoDRuleInfoDto> {
-    try {
-      const createdBy = req.user?.employeeId || 'SYSTEM';
-      const result = await this.sodService.createSoDRule(
-        {
-          name: dto.name,
-          description: dto.description,
-          primaryRoleId: dto.primaryRoleId,
-          conflictingRoleId: dto.conflictingRoleId,
-        },
-        createdBy,
-      ) as any;
+  async createSoDRule(
+    @Res() res: Response,
+    @Body() dto: CreateSoDRuleDto,
+    @Headers('x-user-id') userId: string,
+  ): Promise<any> {
+    const createdBy = userId || 'SYSTEM';
+    const result = await this.sodService.createSoDRule(
+      {
+        name: dto.name,
+        description: dto.description,
+        primaryRoleId: dto.primaryRoleId,
+        conflictingRoleId: dto.conflictingRoleId,
+      },
+      createdBy,
+    );
 
-      return {
-        id: result.id,
-        name: result.name,
-        description: result.description,
-        primaryRole: {
-          id: result.primaryRole?.id || result.role?.id,
-          name: result.primaryRole?.name || result.role?.name,
-          displayName: result.primaryRole?.displayName || result.role?.displayName,
-          level: result.primaryRole?.level || result.role?.level || 0,
-          isActive: result.primaryRole?.isActive || result.role?.isActive || true,
-        },
-        conflictingRole: {
-          id: result.conflictingRole.id,
-          name: result.conflictingRole.name,
-          displayName: result.conflictingRole.displayName,
-          level: result.conflictingRole.level || 0,
-          isActive: result.conflictingRole.isActive || true,
-        },
-        isActive: result.isActive,
-      };
-    } catch (error) {
-      throw new RBACError(`Failed to create SoD rule: ${error.message}`, 'CREATE_SOD_FAILED');
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    const data = result.data!;
+    return response[HttpStatus.CREATED](res, {
+      message: validationMessage('SoD rule')[201](),
+      data: {
+        id: data.id,
+        name: data.name,
+        description: data.description,
+        primaryRole: data.role,
+        conflictingRole: data.conflictingRole,
+        isActive: data.isActive,
+      },
+    });
   }
 
   @Get('sod-rules')
-  async getActiveSoDRules(): Promise<SoDRuleInfoDto[]> {
-    try {
-      const rules = await this.sodService.getActiveSoDRules();
-      return rules.map((rule: any) => ({
-        id: rule.id,
-        name: rule.name,
-        description: rule.description,
-        primaryRole: {
-          id: rule.primaryRole?.id || rule.role?.id,
-          name: rule.primaryRole?.name || rule.role?.name,
-          displayName: rule.primaryRole?.displayName || rule.role?.displayName,
-          level: rule.primaryRole?.level || rule.role?.level || 0,
-          isActive: rule.primaryRole?.isActive || rule.role?.isActive || true,
-        },
-        conflictingRole: {
-          id: rule.conflictingRole.id,
-          name: rule.conflictingRole.name,
-          displayName: rule.conflictingRole.displayName,
-          level: rule.conflictingRole.level || 0,
-          isActive: rule.conflictingRole.isActive || true,
-        },
-        isActive: rule.isActive,
-      }));
-    } catch (error) {
-      throw new RBACError(`Failed to get SoD rules: ${error.message}`, 'GET_SOD_FAILED');
+  async getActiveSoDRules(@Res() res: Response): Promise<any> {
+    const result = await this.sodService.getActiveSoDRules();
+
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    return response[HttpStatus.OK](res, {
+      message: validationMessage('SoD rules')[200](),
+      data: result.data,
+    });
   }
 
   @Post('validate-roles')
   @HttpCode(HttpStatus.OK)
-  async validateRoles(@Body() body: { roles: string[] }): Promise<SoDValidationResultDto> {
-    try {
-      const roles = body.roles as any[];
-      const result = await this.sodService.validateRoles(roles);
+  async validateRoles(@Res() res: Response, @Body() body: { roles: string[] }): Promise<any> {
+    const roles = body.roles as any[];
+    const result = await this.sodService.validateRoles(roles);
 
-      return {
-        isValid: result.isValid,
-        violations: result.violations.map((v: any) => ({
-          id: v.id,
-          name: v.name,
-          description: v.description,
-          primaryRole: {
-            id: v.primaryRole?.id || v.role?.id,
-            name: v.primaryRole?.name || v.role?.name,
-            displayName: v.primaryRole?.displayName || v.role?.displayName,
-            level: v.primaryRole?.level || v.role?.level || 0,
-            isActive: v.primaryRole?.isActive || v.role?.isActive || true,
-          },
-          conflictingRole: {
-            id: v.conflictingRole.id,
-            name: v.conflictingRole.name,
-            displayName: v.conflictingRole.displayName,
-            level: v.conflictingRole.level || 0,
-            isActive: v.conflictingRole.isActive || true,
-          },
-          isActive: v.isActive,
-        })),
-        errorMessage: result.errorMessage,
-      };
-    } catch (error) {
-      throw new RBACError(`Failed to validate roles: ${error.message}`, 'VALIDATE_FAILED');
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    return response[HttpStatus.OK](res, {
+      message: validationMessage('Validation')[200](),
+      data: result.data,
+    });
   }
 
   @Get('sod-violations')
-  async getAllSoDViolations(@Query('limit') limit?: string) {
-    try {
-      const limitNum = limit ? parseInt(limit) : 100;
-      const violations = await this.sodService.getAllSoDViolations(limitNum);
+  async getAllSoDViolations(@Res() res: Response, @Query('limit') limit?: string) {
+    const limitNum = limit ? parseInt(limit) : 100;
+    const result = await this.sodService.getAllSoDViolations(limitNum);
 
-      return violations.map((v) => ({
-        employeeId: v.employeeId,
-        employeeName: v.employeeName,
-        violations: v.violations.map((vio: any) => ({
-          id: vio.id,
-          name: vio.name,
-          description: vio.description,
-          primaryRole: {
-            id: vio.primaryRole?.id || vio.role?.id,
-            name: vio.primaryRole?.name || vio.role?.name,
-            displayName: vio.primaryRole?.displayName || vio.role?.displayName,
-            level: vio.primaryRole?.level || vio.role?.level || 0,
-            isActive: vio.primaryRole?.isActive || vio.role?.isActive || true,
-          },
-          conflictingRole: {
-            id: vio.conflictingRole.id,
-            name: vio.conflictingRole.name,
-            displayName: vio.conflictingRole.displayName,
-            level: vio.conflictingRole.level || 0,
-            isActive: vio.conflictingRole.isActive || true,
-          },
-          isActive: vio.isActive,
-        })),
-      }));
-    } catch (error) {
-      throw new RBACError(`Failed to get SoD violations: ${error.message}`, 'GET_VIOLATIONS_FAILED');
+    if (result.error) {
+      return response[result.error.code || HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: result.error.message,
+      });
     }
+
+    return response[HttpStatus.OK](res, {
+      message: validationMessage('SoD violations')[200](),
+      data: result.data,
+    });
   }
 }

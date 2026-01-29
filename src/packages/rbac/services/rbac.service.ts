@@ -1,29 +1,22 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { PrismaClient, Role } from '@prisma/client';
 import { clientDb } from '../../../shared/utils';
-import { PrismaClient } from '@prisma/client';
-import * as crypto from 'crypto';
+import { IUsecaseResponse } from '../../../shared/utils/rest-api/types';
+import { IAuditLogListResponse, IUserListResponse } from '../domain/response';
 import {
-  RoleInfo,
-  Permission,
-  UserRoleAssignment,
-  TempRoleAssignment,
+  AssignTempRoleRequest,
+  AUDIT_RETENTION_YEARS,
   CalculateRolesRequest,
   CalculateRolesResponse,
-  AssignTempRoleRequest,
-  RevokeTempRoleRequest,
-  UserRBACInfo,
-  RoleCalculationResult,
-  PermissionHash,
+  Permission,
   RBACValidationResult,
-  RBACError,
-  RoleCalculationError,
-  SoDViolationError,
-  TempRoleExpiredError,
+  RevokeTempRoleRequest,
+  RoleCalculationResult,
   SYSTEM_ROLES,
-  DEFAULT_ROLE_LEVELS,
-  AUDIT_RETENTION_YEARS,
+  TempRoleAssignment,
   TempRoleStatus,
+  UserRBACInfo,
+  UserRoleAssignment,
 } from '../domain/types';
 
 @Injectable()
@@ -34,18 +27,30 @@ export class RBACService {
   /**
    * Calculate effective roles and permissions for an employee
    */
-  async calculateEffectiveRoles(request: CalculateRolesRequest): Promise<CalculateRolesResponse> {
+  async calculateEffectiveRoles(request: CalculateRolesRequest): Promise<IUsecaseResponse<CalculateRolesResponse>> {
     try {
       this.logger.log(`Calculating roles for employee ${request.employeeId}`);
 
       // Get active role matrix
       const activeMatrix = await this.getActiveRoleMatrix();
-      if (!activeMatrix) {
-        throw new RBACError('No active role matrix found', 'NO_ACTIVE_MATRIX');
-      }
+      let calculationResult: RoleCalculationResult;
+      let matrixVersion: string;
 
-      // Calculate roles based on HRIS attributes
-      const calculationResult = await this.calculateRolesFromMatrix(request.hrisAttributes, activeMatrix.id);
+      if (!activeMatrix) {
+        this.logger.warn(`No active role matrix found for ${request.employeeId}, falling back to default USER role`);
+        calculationResult = {
+          roles: [SYSTEM_ROLES.USER],
+          permissions: [],
+          rlsFilters: [],
+          sodViolations: [],
+          matchedMappings: [],
+        };
+        matrixVersion = 'SYSTEM_DEFAULT';
+      } else {
+        // Calculate roles based on HRIS attributes
+        calculationResult = await this.calculateRolesFromMatrix(request.hrisAttributes, activeMatrix.id);
+        matrixVersion = activeMatrix.version;
+      }
 
       // Validate SoD rules
       const sodViolations = await this.validateSoDRules(request.employeeId, calculationResult.roles);
@@ -57,52 +62,103 @@ export class RBACService {
       const permissions = await this.getPermissionsForRoles(calculationResult.roles);
 
       return {
-        employeeId: request.employeeId,
-        effectiveRoles: calculationResult.roles,
-        permissions,
-        rlsFilters,
-        sodViolations,
-        roleMatrixVersion: activeMatrix.version,
+        data: {
+          employeeId: request.employeeId,
+          effectiveRoles: calculationResult.roles,
+          permissions,
+          rlsFilters,
+          sodViolations,
+          roleMatrixVersion: matrixVersion,
+        },
       };
     } catch (error) {
       this.logger.error(`Failed to calculate roles for ${request.employeeId}: ${error.message}`, error.stack);
-      throw error instanceof RBACError ? error : new RoleCalculationError(request.employeeId, error.message);
+      return {
+        error: {
+          message: error.message || 'Failed to calculate roles',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Get complete RBAC information for a user
    */
-  async getUserRBACInfo(employeeId: string): Promise<UserRBACInfo> {
-    const [currentRoles, tempRoles, calculation] = await Promise.all([
-      this.getUserCurrentRoles(employeeId),
-      this.getUserTempRoles(employeeId),
-      this.calculateEffectiveRoles({ employeeId, hrisAttributes: {} }),
-    ]);
+  async getUserRBACInfo(employeeId: string): Promise<IUsecaseResponse<UserRBACInfo>> {
+    try {
+      const [employee, currentRoles, tempRoles, calculation] = await Promise.all([
+        this.db.employee.findUnique({
+          where: { employeeId },
+          select: {
+            fullName: true,
+            updatedAt: true,
+          },
+        }),
+        this.getUserCurrentRoles(employeeId),
+        this.getUserTempRoles(employeeId),
+        this.calculateEffectiveRoles({ employeeId, hrisAttributes: {} }),
+      ]);
 
-    return {
-      employeeId,
-      currentRoles,
-      tempRoles,
-      effectiveRoles: calculation.effectiveRoles,
-      effectivePermissions: calculation.permissions,
-      rlsFilters: calculation.rlsFilters,
-      lastCalculated: new Date(),
-      roleMatrixVersion: calculation.roleMatrixVersion,
-    };
+      if (!employee) {
+        return {
+          error: {
+            message: `Employee with ID ${employeeId} not found`,
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
+      }
+
+      if (calculation.error) {
+        return { error: calculation.error };
+      }
+
+      const calcData = calculation.data!;
+
+      return {
+        data: {
+          employeeId,
+          fullName: employee.fullName,
+          lastLogin: employee.updatedAt, // Using updatedAt as a proxy for lastLogin
+          currentRoles,
+          tempRoles,
+          effectiveRoles: calcData.effectiveRoles,
+          effectivePermissions: calcData.permissions,
+          rlsFilters: calcData.rlsFilters,
+          lastCalculated: new Date(),
+          roleMatrixVersion: calcData.roleMatrixVersion,
+        },
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get user RBAC info: ${error.message}`, error.stack);
+      return {
+        error: {
+          message: error.message || 'Failed to get user RBAC info',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
   }
 
   /**
    * Assign temporary role to user
    */
-  async assignTempRole(request: AssignTempRoleRequest, assignedBy: string): Promise<TempRoleAssignment> {
+  async assignTempRole(
+    request: AssignTempRoleRequest,
+    assignedBy: string,
+  ): Promise<IUsecaseResponse<TempRoleAssignment>> {
     try {
       // Validate temp role doesn't exceed reasonable duration (max 30 days)
       const maxDuration = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
       const duration = request.tempRoleEnd.getTime() - Date.now();
 
       if (duration > maxDuration) {
-        throw new RBACError('Temporary role duration cannot exceed 30 days', 'INVALID_TEMP_ROLE_DURATION');
+        return {
+          error: {
+            message: 'Temporary role duration cannot exceed 30 days',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
       }
 
       // Check if user already has this role temporarily
@@ -115,7 +171,12 @@ export class RBACService {
       });
 
       if (existingTempRole) {
-        throw new RBACError('User already has this role temporarily assigned', 'DUPLICATE_TEMP_ROLE');
+        return {
+          error: {
+            message: 'User already has this role temporarily assigned',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
       }
 
       // Create temp role
@@ -146,19 +207,22 @@ export class RBACService {
         `Temporary role ${request.roleId} assigned to ${request.employeeId} until ${request.tempRoleEnd.toISOString()}`,
       );
 
-      return this.mapTempRoleToDomain(tempRole);
+      return { data: this.mapTempRoleToDomain(tempRole) };
     } catch (error) {
       this.logger.error(`Failed to assign temp role: ${error.message}`, error.stack);
-      throw error instanceof RBACError
-        ? error
-        : new RBACError(`Failed to assign temp role: ${error.message}`, 'TEMP_ROLE_ASSIGN_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to assign temp role',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Revoke temporary role
    */
-  async revokeTempRole(request: RevokeTempRoleRequest, revokedBy: string): Promise<void> {
+  async revokeTempRole(request: RevokeTempRoleRequest, revokedBy: string): Promise<IUsecaseResponse<void>> {
     try {
       const tempRole = await this.db.tempRole.findUnique({
         where: { id: request.tempRoleId },
@@ -166,11 +230,21 @@ export class RBACService {
       });
 
       if (!tempRole) {
-        throw new RBACError('Temporary role not found', 'TEMP_ROLE_NOT_FOUND');
+        return {
+          error: {
+            message: 'Temporary role not found',
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
       }
 
       if (tempRole.status !== TempRoleStatus.ACTIVE) {
-        throw new TempRoleExpiredError(request.tempRoleId);
+        return {
+          error: {
+            message: 'Temporary role is not active',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
       }
 
       // Update temp role status
@@ -195,18 +269,22 @@ export class RBACService {
       });
 
       this.logger.log(`Temporary role ${request.tempRoleId} revoked for ${tempRole.employeeId}`);
+      return { data: undefined };
     } catch (error) {
       this.logger.error(`Failed to revoke temp role: ${error.message}`, error.stack);
-      throw error instanceof RBACError
-        ? error
-        : new RBACError(`Failed to revoke temp role: ${error.message}`, 'TEMP_ROLE_REVOKE_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to revoke temp role',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Clean up expired temporary roles
    */
-  async cleanupExpiredTempRoles(): Promise<number> {
+  async cleanupExpiredTempRoles(): Promise<IUsecaseResponse<number>> {
     try {
       const expiredRoles = await this.db.tempRole.updateMany({
         where: {
@@ -226,35 +304,173 @@ export class RBACService {
         this.logger.log(`Cleaned up ${expiredRoles.count} expired temporary roles`);
       }
 
-      return expiredRoles.count;
+      return { data: expiredRoles.count };
     } catch (error) {
       this.logger.error(`Failed to cleanup expired temp roles: ${error.message}`, error.stack);
-      throw new RBACError(`Failed to cleanup expired temp roles: ${error.message}`, 'CLEANUP_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to cleanup expired temp roles',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Validate if role assignment would violate SoD rules
    */
-  async validateRoleAssignment(employeeId: string, newRoles: Role[]): Promise<RBACValidationResult> {
+  async validateRoleAssignment(employeeId: string, newRoles: Role[]): Promise<IUsecaseResponse<RBACValidationResult>> {
     try {
       const sodViolations = await this.validateSoDRules(employeeId, newRoles);
 
       return {
-        isValid: sodViolations.length === 0,
-        errors: sodViolations.map(
-          (v) => `SoD violation: ${v.role.name} cannot be combined with ${v.conflictingRole.name}`,
-        ),
-        warnings: [],
-        sodViolations,
+        data: {
+          isValid: sodViolations.length === 0,
+          errors: sodViolations.map(
+            (v) => `SoD violation: ${v.role.name} cannot be combined with ${v.conflictingRole.name}`,
+          ),
+          warnings: [],
+          sodViolations,
+        },
       };
     } catch (error) {
       this.logger.error(`Failed to validate role assignment: ${error.message}`, error.stack);
       return {
-        isValid: false,
-        errors: [`Validation failed: ${error.message}`],
-        warnings: [],
-        sodViolations: [],
+        error: {
+          message: error.message || 'Failed to validate role assignment',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
+  }
+
+  /**
+   * List all users with their roles and basic info
+   */
+  async listUsers(page: number = 1, limit: number = 10, roles?: string): Promise<IUsecaseResponse<IUserListResponse>> {
+    try {
+      const skip = (page - 1) * limit;
+      const roleSearch = roles ? roles.split(',').map((r) => r.trim()) : undefined;
+
+      const where: any = {};
+      if (roleSearch && roleSearch.length > 0) {
+        where.OR = [
+          {
+            userRoles: {
+              some: {
+                role: {
+                  name: { in: roleSearch },
+                },
+              },
+            },
+          },
+          {
+            tempRoles: {
+              some: {
+                status: TempRoleStatus.ACTIVE,
+                role: {
+                  name: { in: roleSearch },
+                },
+              },
+            },
+          },
+        ];
+      }
+
+      const [users, total] = await Promise.all([
+        this.db.employee.findMany({
+          where,
+          take: limit,
+          skip: skip,
+          include: {
+            orgUnit: true,
+            userRoles: {
+              include: { role: true },
+            },
+            tempRoles: {
+              where: { status: TempRoleStatus.ACTIVE },
+              include: { role: true },
+            },
+          },
+          orderBy: { fullName: 'asc' },
+        }),
+        this.db.employee.count({ where }),
+      ]);
+
+      const data = users.map((u) => ({
+        employeeId: u.employeeId,
+        fullName: u.fullName,
+        email: u.email,
+        position: u.position,
+        department: u.orgUnit?.name || 'N/A',
+        isActive: u.isActive,
+        roles: u.userRoles.map((ur) => ({
+          id: ur.role.id,
+          name: ur.role.name,
+          displayName: ur.role.displayName,
+        })),
+        tempRoles: u.tempRoles.map((tr) => ({
+          id: tr.role.id,
+          name: tr.role.name,
+          displayName: tr.role.displayName,
+          expiresAt: tr.tempRoleEnd,
+        })),
+      }));
+
+      return {
+        data: {
+          data,
+          meta: {
+            page,
+            limit,
+            total,
+          },
+        },
+      };
+    } catch (error) {
+      this.logger.error(`Failed to list users: ${error.message}`, error.stack);
+      return {
+        error: {
+          message: error.message || 'Failed to list users',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
+  }
+
+  /**
+   * List RBAC audit logs (snapshots)
+   */
+  async listAuditLogs(page: number = 1, limit: number = 10): Promise<IUsecaseResponse<IAuditLogListResponse>> {
+    try {
+      const skip = (page - 1) * limit;
+
+      const [logs, total] = await Promise.all([
+        this.db.rBACSnapshot.findMany({
+          take: limit,
+          skip: skip,
+          orderBy: { changedAt: 'desc' },
+        }),
+        this.db.rBACSnapshot.count(),
+      ]);
+
+      return {
+        data: {
+          data: logs as any,
+          meta: {
+            page,
+            limit,
+            total,
+          },
+        },
+      };
+    } catch (error) {
+      this.logger.error(`Failed to list audit logs: ${error.message}`, error.stack);
+      return {
+        error: {
+          message: error.message || 'Failed to list audit logs',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
       };
     }
   }
@@ -356,14 +572,19 @@ export class RBACService {
     return true;
   }
 
-  private async validateSoDRules(employeeId: string, roles: Role[]): Promise<Array<{
-    id: string;
-    name: string;
-    description?: string;
-    role: any;
-    conflictingRole: any;
-    isActive: boolean;
-  }>> {
+  private async validateSoDRules(
+    employeeId: string,
+    roles: Role[],
+  ): Promise<
+    Array<{
+      id: string;
+      name: string;
+      description?: string;
+      role: any;
+      conflictingRole: any;
+      isActive: boolean;
+    }>
+  > {
     const violations: Array<{
       id: string;
       name: string;
