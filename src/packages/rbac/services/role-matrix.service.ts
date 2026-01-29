@@ -1,17 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { clientDb } from '../../../shared/utils';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as crypto from 'crypto';
+import { clientDb } from '../../../shared/utils';
+import { IUsecaseResponse } from '../../../shared/utils/rest-api/types';
+import { IRoleMatrixListResponse } from '../domain/response';
 import {
-  RoleMatrixInfo,
-  RoleMatrixMapping,
-  CreateRoleMatrixRequest,
-  PublishRoleMatrixRequest,
-  PermissionHash,
-  RBACError,
-  PolicyNotPublishedError,
-  RBACStatus,
-  PolicyChangeAction,
+    CreateRoleMatrixRequest,
+    PolicyChangeAction,
+    PublishRoleMatrixRequest,
+    RBACError,
+    RBACStatus,
+    RoleMatrixInfo,
+    RoleMatrixMapping
 } from '../domain/types';
 
 @Injectable()
@@ -22,16 +22,18 @@ export class RoleMatrixService {
   /**
    * Create a new role matrix version
    */
-  async createRoleMatrix(request: CreateRoleMatrixRequest, createdBy: string): Promise<RoleMatrixInfo> {
+  async createRoleMatrix(request: CreateRoleMatrixRequest, createdBy: string): Promise<IUsecaseResponse<RoleMatrixInfo>> {
     try {
       this.logger.log(`Creating role matrix ${request.version} by ${createdBy}`);
 
       // Validate version format (semantic versioning)
       if (!this.isValidVersion(request.version)) {
-        throw new RBACError(
-          `Invalid version format: ${request.version}. Use semantic versioning (e.g., v1.0.0)`,
-          'INVALID_VERSION',
-        );
+        return {
+          error: {
+            message: `Invalid version format: ${request.version}. Use semantic versioning (e.g., v1.0.0)`,
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
       }
 
       // Check if version already exists
@@ -40,7 +42,12 @@ export class RoleMatrixService {
       });
 
       if (existing) {
-        throw new RBACError(`Role matrix version ${request.version} already exists`, 'VERSION_EXISTS');
+        return {
+          error: {
+            message: `Role matrix version ${request.version} already exists`,
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
       }
 
       // Validate mappings
@@ -75,19 +82,22 @@ export class RoleMatrixService {
       });
 
       this.logger.log(`Role matrix ${request.version} created successfully`);
-      return this.mapRoleMatrixToDomain(roleMatrix);
+      return { data: this.mapRoleMatrixToDomain(roleMatrix) };
     } catch (error) {
       this.logger.error(`Failed to create role matrix: ${error.message}`, error.stack);
-      throw error instanceof RBACError
-        ? error
-        : new RBACError(`Failed to create role matrix: ${error.message}`, 'CREATE_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to create role matrix',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Publish a role matrix (Two-Person Rule)
    */
-  async publishRoleMatrix(request: PublishRoleMatrixRequest, reviewerId: string): Promise<RoleMatrixInfo> {
+  async publishRoleMatrix(request: PublishRoleMatrixRequest, reviewerId: string): Promise<IUsecaseResponse<RoleMatrixInfo>> {
     try {
       this.logger.log(`Publishing role matrix ${request.roleMatrixId} by reviewer ${reviewerId}`);
 
@@ -96,16 +106,31 @@ export class RoleMatrixService {
       });
 
       if (!roleMatrix) {
-        throw new RBACError('Role matrix not found', 'MATRIX_NOT_FOUND');
+        return {
+          error: {
+            message: 'Role matrix not found',
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
       }
 
       if (roleMatrix.status !== RBACStatus.DRAFT) {
-        throw new RBACError(`Role matrix is already ${roleMatrix.status}`, 'INVALID_STATUS');
+        return {
+          error: {
+            message: `Role matrix is already ${roleMatrix.status}`,
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
       }
 
       // Two-Person Rule validation
       if (roleMatrix.editorId === reviewerId) {
-        throw new RBACError('Editor and reviewer cannot be the same person (Two-Person Rule)', 'SAME_EDITOR_REVIEWER');
+        return {
+          error: {
+            message: 'Editor and reviewer cannot be the same person (Two-Person Rule)',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
       }
 
       // Check if there's already a published version that would conflict
@@ -122,10 +147,12 @@ export class RoleMatrixService {
       });
 
       if (conflictingPublished) {
-        throw new RBACError(
-          `Cannot publish: conflicts with published version ${conflictingPublished.version}`,
-          'CONFLICTING_VERSION',
-        );
+        return {
+          error: {
+            message: `Cannot publish: conflicts with published version ${conflictingPublished.version}`,
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
       }
 
       // Publish the role matrix
@@ -148,19 +175,22 @@ export class RoleMatrixService {
       });
 
       this.logger.log(`Role matrix ${updatedMatrix.version} published successfully`);
-      return this.mapRoleMatrixToDomain(updatedMatrix);
+      return { data: this.mapRoleMatrixToDomain(updatedMatrix) };
     } catch (error) {
       this.logger.error(`Failed to publish role matrix: ${error.message}`, error.stack);
-      throw error instanceof RBACError
-        ? error
-        : new RBACError(`Failed to publish role matrix: ${error.message}`, 'PUBLISH_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to publish role matrix',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Get active role matrix
    */
-  async getActiveRoleMatrix(): Promise<RoleMatrixInfo | null> {
+  async getActiveRoleMatrix(): Promise<IUsecaseResponse<RoleMatrixInfo | null>> {
     try {
       const activeMatrix = await this.db.roleMatrix.findFirst({
         where: {
@@ -171,52 +201,85 @@ export class RoleMatrixService {
         orderBy: { effectiveFrom: 'desc' },
       });
 
-      return activeMatrix ? this.mapRoleMatrixToDomain(activeMatrix) : null;
+      return { data: activeMatrix ? this.mapRoleMatrixToDomain(activeMatrix) : null };
     } catch (error) {
       this.logger.error(`Failed to get active role matrix: ${error.message}`, error.stack);
-      throw new RBACError(`Failed to get active role matrix: ${error.message}`, 'GET_ACTIVE_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to get active role matrix',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Get role matrix by version
    */
-  async getRoleMatrixByVersion(version: string): Promise<RoleMatrixInfo | null> {
+  async getRoleMatrixByVersion(version: string): Promise<IUsecaseResponse<RoleMatrixInfo | null>> {
     try {
       const matrix = await this.db.roleMatrix.findUnique({
         where: { version },
       });
 
-      return matrix ? this.mapRoleMatrixToDomain(matrix) : null;
+      return { data: matrix ? this.mapRoleMatrixToDomain(matrix) : null };
     } catch (error) {
       this.logger.error(`Failed to get role matrix ${version}: ${error.message}`, error.stack);
-      throw new RBACError(`Failed to get role matrix ${version}: ${error.message}`, 'GET_MATRIX_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to get role matrix',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * List all role matrices with pagination
    */
-  async listRoleMatrices(status?: RBACStatus, limit: number = 50, offset: number = 0): Promise<RoleMatrixInfo[]> {
+  async listRoleMatrices(page: number = 1, limit: number = 50, status?: RBACStatus): Promise<IUsecaseResponse<IRoleMatrixListResponse>> {
     try {
-      const matrices = await this.db.roleMatrix.findMany({
-        where: status ? { status } : {},
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        skip: offset,
-      });
+      const skip = (page - 1) * limit;
 
-      return matrices.map((m) => this.mapRoleMatrixToDomain(m));
+      const [matrices, total] = await Promise.all([
+        this.db.roleMatrix.findMany({
+          where: status ? { status } : {},
+          orderBy: { createdAt: 'desc' },
+          take: limit,
+          skip: skip,
+        }),
+        this.db.roleMatrix.count({
+          where: status ? { status } : {},
+        }),
+      ]);
+
+      const data = matrices.map((m) => this.mapRoleMatrixToDomain(m));
+
+      return {
+        data: {
+          data,
+          meta: {
+            page,
+            limit,
+            total,
+          },
+        },
+      };
     } catch (error) {
       this.logger.error(`Failed to list role matrices: ${error.message}`, error.stack);
-      throw new RBACError(`Failed to list role matrices: ${error.message}`, 'LIST_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to list role matrices',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Get mappings for a role matrix
    */
-  async getRoleMatrixMappings(roleMatrixId: string): Promise<RoleMatrixMapping[]> {
+  async getRoleMatrixMappings(roleMatrixId: string): Promise<IUsecaseResponse<RoleMatrixMapping[]>> {
     try {
       const mappings = await this.db.roleMatrixMapping.findMany({
         where: { roleMatrixId },
@@ -224,28 +287,43 @@ export class RoleMatrixService {
         orderBy: { priority: 'desc' },
       });
 
-      return mappings.map((m) => this.mapMappingToDomain(m));
+      return { data: mappings.map((m) => this.mapMappingToDomain(m)) };
     } catch (error) {
       this.logger.error(`Failed to get mappings for matrix ${roleMatrixId}: ${error.message}`, error.stack);
-      throw new RBACError(`Failed to get mappings: ${error.message}`, 'GET_MAPPINGS_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to get mappings',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 
   /**
    * Retire a role matrix
    */
-  async retireRoleMatrix(roleMatrixId: string, retiredBy: string, reason: string): Promise<void> {
+  async retireRoleMatrix(roleMatrixId: string, retiredBy: string, reason: string): Promise<IUsecaseResponse<void>> {
     try {
       const matrix = await this.db.roleMatrix.findUnique({
         where: { id: roleMatrixId },
       });
 
       if (!matrix) {
-        throw new RBACError('Role matrix not found', 'MATRIX_NOT_FOUND');
+        return {
+          error: {
+            message: 'Role matrix not found',
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
       }
 
       if (matrix.status !== RBACStatus.PUBLISHED) {
-        throw new RBACError('Only published matrices can be retired', 'INVALID_STATUS');
+        return {
+          error: {
+            message: 'Only published matrices can be retired',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
       }
 
       await this.db.roleMatrix.update({
@@ -266,11 +344,15 @@ export class RoleMatrixService {
       });
 
       this.logger.log(`Role matrix ${matrix.version} retired by ${retiredBy}`);
+      return { data: undefined };
     } catch (error) {
       this.logger.error(`Failed to retire role matrix: ${error.message}`, error.stack);
-      throw error instanceof RBACError
-        ? error
-        : new RBACError(`Failed to retire role matrix: ${error.message}`, 'RETIRE_FAILED');
+      return {
+        error: {
+          message: error.message || 'Failed to retire role matrix',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
     }
   }
 

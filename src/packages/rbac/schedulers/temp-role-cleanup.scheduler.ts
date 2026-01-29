@@ -1,6 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import { Inject } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { RBACService } from '../services/rbac.service';
 
 @Injectable()
@@ -25,8 +24,14 @@ export class TempRoleCleanupScheduler {
     try {
       this.logger.log('Starting scheduled temporary role cleanup');
 
-      const cleanedCount = await this.rbacService.cleanupExpiredTempRoles();
+      const result = await this.rbacService.cleanupExpiredTempRoles();
 
+      if (result.error) {
+        this.logger.error(`Scheduled temp role cleanup failed: ${result.error.message}`);
+        return;
+      }
+
+      const cleanedCount = result.data!;
       if (cleanedCount > 0) {
         this.logger.log(`Successfully cleaned up ${cleanedCount} expired temporary roles`);
       } else {
@@ -51,10 +56,10 @@ export class TempRoleCleanupScheduler {
     try {
       this.logger.debug('Running backup temporary role cleanup');
 
-      const cleanedCount = await this.rbacService.cleanupExpiredTempRoles();
+      const result = await this.rbacService.cleanupExpiredTempRoles();
 
-      if (cleanedCount > 0) {
-        this.logger.log(`Backup cleanup: ${cleanedCount} expired temporary roles cleaned up`);
+      if (result.data && result.data > 0) {
+        this.logger.log(`Backup cleanup: ${result.data} expired temporary roles cleaned up`);
       }
     } catch (error) {
       this.logger.error(`Backup temp role cleanup failed: ${error.message}`, error.stack);
@@ -66,6 +71,7 @@ export class TempRoleCleanupScheduler {
    */
   async triggerManualCleanup(): Promise<number> {
     this.logger.log('Manual temp role cleanup triggered');
-    return await this.rbacService.cleanupExpiredTempRoles();
+    const result = await this.rbacService.cleanupExpiredTempRoles();
+    return result.data || 0;
   }
 }

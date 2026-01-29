@@ -172,6 +172,13 @@ export interface AssignTempRoleRequest {
   tempRoleEnd: Date;
 }
 
+export interface CreateSoDRuleRequest {
+  name: string;
+  description?: string;
+  primaryRoleId: string;
+  conflictingRoleId: string;
+}
+
 export interface RevokeTempRoleRequest {
   tempRoleId: string;
   revokeReason: string;
@@ -193,6 +200,8 @@ export interface PublishRoleMatrixRequest {
 
 export interface UserRBACInfo {
   employeeId: string;
+  fullName: string;
+  lastLogin?: Date;
   currentRoles: UserRoleAssignment[];
   tempRoles: TempRoleAssignment[];
   effectiveRoles: Role[];
