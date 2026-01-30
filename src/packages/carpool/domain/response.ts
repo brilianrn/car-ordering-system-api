@@ -60,3 +60,20 @@ export interface ISharedCostSummary {
   }>;
   [key: string]: any; // Index signature for JsonValue compatibility
 }
+
+export interface ICarpoolBooking {
+  bookingId: number;
+  requesterName: string;
+  startDatetime: string;
+  paxCount: number;
+  similarity: string;
+  from: string;
+  to: string;
+}
+
+export interface ICarpoolCandidateGroupResponse {
+  groupId: string;
+  groupName: string;
+  groupColorHex: string;
+  bookings: ICarpoolBooking[];
+}

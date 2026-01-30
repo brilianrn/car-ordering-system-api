@@ -4,8 +4,7 @@ import { globalLogger as Logger } from '@/shared/utils/logger';
 import { Injectable } from '@nestjs/common';
 import { BookingStatus } from '@prisma/client';
 import { addDays, format } from 'date-fns';
-import { ICarpoolBooking, ICarpoolCandidateGroupResponse } from '../domain/candidate-group.response';
-import { ICarpoolCandidate } from '../domain/response';
+import { ICarpoolBooking, ICarpoolCandidate, ICarpoolCandidateGroupResponse } from '../domain/response';
 import { GetCarpoolCandidatesDto } from '../dto';
 import { CarpoolConfig, CarpoolConfigService } from './carpool-config.service';
 
@@ -19,7 +18,10 @@ export class CarpoolCandidateMatcherService {
   ) {}
 
   /**
-   * Find global carpool candidates and group them (FR-REQ-002)
+   * Find global carpool candidates and group them (FR-REQ-002).
+   * Grouping: by destination (to) and date (YYYY-MM-DD). Same to + same date = one group.
+   * Similarity: each booking in group is compared to the first booking (anchor).
+   * A booking may appear in multiple groups if it matches more than one (to, date) key.
    */
   async findGlobalCandidates(dto: GetCarpoolCandidatesDto, userId: string): Promise<ICarpoolCandidateGroupResponse[]> {
     try {
@@ -49,9 +51,10 @@ export class CarpoolCandidateMatcherService {
             lte: endDate,
           },
           requester: {
-            orgUnitId: user.orgUnitId, // RLS: same Org Unit
+            orgUnitId: user.orgUnitId,
           },
           deletedAt: null,
+          carpoolGroupId: null,
         },
         include: {
           segments: {
@@ -73,103 +76,54 @@ export class CarpoolCandidateMatcherService {
         return [];
       }
 
-      const config = await this.configService.getConfig();
-      const rawGroups: { anchor: any; members: any[] }[] = [];
+      // 4. Group by (to, YYYY-MM-DD). One group per unique destination + date.
+      const groupKeyToBookings = new Map<string, typeof bookings>();
+      for (const b of bookings) {
+        const seg = b.segments[0];
+        if (!seg) continue;
+        const toNorm = (seg.to || 'Unknown').trim().toLowerCase();
+        const dateStr = format(b.startAt, 'yyyy-MM-dd');
+        const key = `${toNorm}|${dateStr}`;
+        if (!groupKeyToBookings.has(key)) {
+          groupKeyToBookings.set(key, []);
+        }
+        groupKeyToBookings.get(key)!.push(b);
+      }
 
-      // 4. Anchor-based Cross-Matching Algorithm
-      for (const anchor of bookings) {
+      const result: ICarpoolCandidateGroupResponse[] = [];
+      const destDateSequenceMap = new Map<string, number>();
+
+      for (const [, groupBookings] of groupKeyToBookings) {
+        if (groupBookings.length === 0) continue;
+
+        // Sort by startAt: first = anchor for similarity
+        groupBookings.sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
+        const anchor = groupBookings[0];
         const anchorSegment = anchor.segments[0];
         if (!anchorSegment) continue;
 
-        const members = [anchor];
-        const anchorDate = format(anchor.startAt, 'yyyy-MM-dd');
-
-        for (const candidate of bookings) {
-          if (candidate.id === anchor.id) continue;
-          const candidateSegment = candidate.segments[0];
-          if (!candidateSegment) continue;
-
-          // a. Date Match
-          const candidateDate = format(candidate.startAt, 'yyyy-MM-dd');
-          if (anchorDate !== candidateDate) continue;
-
-          // b. Service Type Match
-          if (anchor.serviceType !== candidate.serviceType) continue;
-
-          // c. Time Window Check (<= 15 minutes)
-          const timeDiff = Math.abs((anchor.startAt.getTime() - candidate.startAt.getTime()) / (1000 * 60));
-          if (timeDiff > 15) continue;
-
-          // d. Destination Similarity Check
-          const similarity = await this.calculateRouteSimilarity(anchorSegment, candidateSegment);
-          if (similarity < 70) continue;
-
-          // e. Capacity Guard
-          const currentPaxTotal = members.reduce((sum, b) => sum + b.passengerCount, 0);
-          if (currentPaxTotal + candidate.passengerCount <= config.maxVehicleSeatCapacity) {
-            members.push(candidate);
-          }
-        }
-
-        // Only create a group if it has more than just the anchor, or if it's the only way to represent this booking
-        rawGroups.push({ anchor, members });
-      }
-
-      // 5. Cleanup Duplicate Groups and Form Response
-      const result: ICarpoolCandidateGroupResponse[] = [];
-      const processedGroupFingerprints = new Set<string>();
-      const destSequenceMap = new Map<string, number>();
-
-      for (const group of rawGroups) {
-        // Create a fingerprint to avoid duplicate identical groups
-        const fingerprint = group.members
-          .map((m) => m.id)
-          .sort((a, b) => a - b)
-          .join(',');
-
-        if (processedGroupFingerprints.has(fingerprint) && group.members.length > 1) continue;
-        if (group.members.length > 1) {
-          processedGroupFingerprints.add(fingerprint);
-        }
-
-        const anchor = group.anchor;
-        const anchorSegment = anchor.segments[0];
-        const destName = anchorSegment?.to || 'Unknown Location';
+        const destLabel = anchorSegment.to || 'Unknown Location';
+        const shortLocation = this.getShortLocationName(destLabel);
         const dateStr = format(anchor.startAt, 'yyyyMMdd');
-
-        // Generate Initials
-        const initials = destName
-          .split(' ')
-          .filter((w) => w.length > 0)
-          .map((w) => w[0])
-          .join('')
-          .substring(0, 2)
-          .toUpperCase();
-
-        // Sequence per Dest/Date
+        const initials = this.getDestinationInitials(destLabel);
         const seqKey = `${dateStr}-${initials}`;
-        const seq = (destSequenceMap.get(seqKey) || 0) + 1;
-        destSequenceMap.set(seqKey, seq);
-
+        const seq = (destDateSequenceMap.get(seqKey) ?? 0) + 1;
+        destDateSequenceMap.set(seqKey, seq);
         const groupId = `GRP-${dateStr}-${initials}${seq.toString().padStart(2, '0')}`;
-        const groupColorHex = this.generateConsistentColor(groupId);
+        const groupColorHex = this.generateRandomColorHex();
 
         const mappedBookings: ICarpoolBooking[] = await Promise.all(
-          group.members.map(async (m) => {
+          groupBookings.map(async (m) => {
             const mSegment = m.segments[0];
-            const timeDiff = Math.abs((anchor.startAt.getTime() - m.startAt.getTime()) / (1000 * 60));
-
-            const timeScore = Math.max(0, 100 - (timeDiff / 15) * 100);
-            const contentScore =
+            const similarityPercent =
               m.id === anchor.id ? 100 : await this.calculateRouteSimilarity(anchorSegment, mSegment);
-            const similarityPercent = Math.round((timeScore + contentScore) / 2);
 
             return {
               bookingId: m.id,
               requesterName: m.requester.fullName,
               startDatetime: this.formatToJakarta(m.startAt),
               paxCount: m.passengerCount,
-              similarity: `${similarityPercent}%`,
+              similarity: `${Math.round(similarityPercent)}%`,
               from: mSegment?.from || 'Unknown',
               to: mSegment?.to || 'Unknown',
             };
@@ -178,13 +132,14 @@ export class CarpoolCandidateMatcherService {
 
         result.push({
           groupId,
-          groupName: `Trip to ${destName}`,
+          groupName: `Trip to ${shortLocation}`,
           groupColorHex,
           bookings: mappedBookings,
         });
       }
 
-      return result;
+      return result?.filter((r) => r.bookings.length > 1);
+      // return result;
     } catch (error) {
       Logger.error(
         error instanceof Error ? error.message : 'Error in findGlobalCandidates',
@@ -195,34 +150,53 @@ export class CarpoolCandidateMatcherService {
     }
   }
 
+  private getShortLocationName(to: string, maxChars = 30): string {
+    const t = (to || '').trim();
+    if (!t) return 'Unknown';
+    if (t.length <= maxChars) return t;
+    const truncated = t.slice(0, maxChars).trim();
+    const lastSpace = truncated.lastIndexOf(' ');
+    if (lastSpace > 20) return truncated.slice(0, lastSpace);
+    return truncated;
+  }
+
+  private generateRandomColorHex(): string {
+    const hex = () =>
+      Math.floor(Math.random() * 256)
+        .toString(16)
+        .padStart(2, '0');
+    return `#${hex()}${hex()}${hex()}`;
+  }
+
+  private getDestinationInitials(name: string): string {
+    return name
+      .split(' ')
+      .filter((w) => w.length > 0)
+      .map((w) => w[0])
+      .join('')
+      .substring(0, 2)
+      .toUpperCase();
+  }
+
   private generateConsistentColor(str: string): string {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
       hash = str.charCodeAt(i) + ((hash << 5) - hash);
     }
-    const c = (hash & 0x00ffffff).toString(16).toUpperCase();
-    const hex = '00000'.substring(0, 6 - c.length) + c;
-
-    // Ensure it's not too dark or too light for UI
-    // For simplicity, just return it.
-    return `#${hex}`;
-  }
-
-  private generateRandomHexColor(): string {
-    const letters = '89ABCDEF'; // Light colors for better readability
     let color = '#';
-    for (let i = 0; i < 6; i++) {
-      color += letters[Math.floor(Math.random() * letters.length)];
+    for (let i = 0; i < 3; i++) {
+      const value = (hash >> (i * 8)) & 0xff;
+      // Force higher values for lighter colors (better with dark text, or adjust for dark mode)
+      // Attempting a pastel-ish generation
+      const pastelValue = 127 + (value % 128);
+      color += ('00' + pastelValue.toString(16)).substr(-2);
     }
     return color;
   }
 
   private formatToJakarta(date: Date): string {
-    // Standard ISO with offset handled for Asia/Jakarta (UTC+7)
-    // For simplicity, we can just append the offset if we assume the input is UTC
-    // or use a library like luxon/date-fns-tz if installed.
-    // Since we only have date-fns, let's use manual formatting.
-    const tzOffset = 7 * 60; // Jakarta is UTC+7
+    // Basic ISO replacement for now as per previous existing method
+    const tzOffset = 7 * 60;
     const jakartaTime = new Date(date.getTime() + (tzOffset + date.getTimezoneOffset()) * 60000);
     return jakartaTime.toISOString().replace('Z', '+07:00');
   }

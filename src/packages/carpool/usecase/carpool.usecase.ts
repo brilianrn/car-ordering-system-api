@@ -165,7 +165,7 @@ export class CarpoolUseCase {
       let carpoolGroup;
 
       // First check if carpool group exists for this host booking (by hostBookingId)
-      carpoolGroup = await (this.repository as any).findCarpoolGroupByHostBookingId(dto.hostBookingId);
+      carpoolGroup = await this.repository.findCarpoolGroupByHostBookingId(dto.hostBookingId);
 
       // If not found, create new carpool group
       if (!carpoolGroup) {
@@ -173,7 +173,7 @@ export class CarpoolUseCase {
       }
 
       // Check if invite already exists for this joiner booking
-      const existingInvite = await (this.repository as any).findInviteByJoinerBookingId(dto.joinerBookingId);
+      const existingInvite = await this.repository.findInviteByJoinerBookingId(dto.joinerBookingId);
       if (existingInvite) {
         return {
           error: {
