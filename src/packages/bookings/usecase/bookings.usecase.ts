@@ -5,7 +5,7 @@ import { NotificationService } from '@/shared/utils/notification.service';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { BookingStatus, Prisma, ServiceType } from '@prisma/client';
-import { IBookingWithRelations } from '../domain/entities';
+import { BASE_BOOKING_INCLUDE, IBookingWithRelations } from '../domain/entities';
 import { transformBookingWithPresignedUrls } from '../domain/helpers/presigned-url.helper';
 import {
   IAvailableVehicle,
@@ -1361,13 +1361,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
               where: {
                 id: { in: bookingIds },
               },
-              include: {
-                category: true,
-                segments: {
-                  where: { deletedAt: null },
-                  orderBy: { segmentNo: 'asc' },
-                },
-              },
+              include: BASE_BOOKING_INCLUDE,
             });
           }
         }

@@ -44,7 +44,7 @@ export class CarpoolCandidateMatcherService {
       const bookings = await this.db.booking.findMany({
         where: {
           bookingStatus: {
-            in: [BookingStatus.DRAFT, BookingStatus.SUBMITTED, BookingStatus.APPROVED_L1],
+            in: [BookingStatus.APPROVED_L1],
           },
           startAt: {
             gte: startDate,
@@ -440,7 +440,7 @@ export class CarpoolCandidateMatcherService {
 
     const where: any = {
       bookingStatus: {
-        in: [BookingStatus.DRAFT, BookingStatus.SUBMITTED, BookingStatus.APPROVED_L1],
+        in: [BookingStatus.APPROVED_L1],
       },
       startAt: {
         gte: startWindow,
@@ -533,7 +533,7 @@ export class CarpoolCandidateMatcherService {
       where: {
         id: { not: hostBooking.id },
         bookingStatus: {
-          in: [BookingStatus.DRAFT, BookingStatus.SUBMITTED, BookingStatus.APPROVED_L1],
+          in: [BookingStatus.APPROVED_L1],
         },
         startAt: {
           gte: startWindow,

@@ -81,6 +81,24 @@ export const BASE_BOOKING_INCLUDE: Prisma.BookingInclude = {
     where: { deletedAt: null },
     orderBy: { segmentNo: 'asc' },
     include: {
+      travelOrder: {
+        include: {
+          driver: {
+            include: {
+              photoAsset: true,
+            },
+          },
+          vehicle: {
+            include: {
+              images: {
+                select: {
+                  asset: true,
+                },
+              },
+            },
+          },
+        },
+      },
       execution: {
         include: {
           verification: {
@@ -101,6 +119,26 @@ export const BASE_BOOKING_INCLUDE: Prisma.BookingInclude = {
           email: true,
         },
       },
+      assignment: {
+        include: {
+          vehicleChosen: {
+            include: {
+              images: {
+                select: {
+                  asset: true,
+                },
+              },
+            },
+          },
+          driverChosen: {
+            include: {
+              photoAsset: true,
+              ktpAsset: true,
+              simAsset: true,
+            },
+          },
+        },
+      },
     },
   },
   requester: {
@@ -108,6 +146,33 @@ export const BASE_BOOKING_INCLUDE: Prisma.BookingInclude = {
       employeeId: true,
       fullName: true,
       email: true,
+    },
+  },
+  vehicle: {
+    include: {
+      images: {
+        select: {
+          asset: true,
+        },
+      },
+    },
+  },
+  assignment: {
+    include: {
+      vehicleChosen: {
+        include: {
+          images: {
+            select: {
+              asset: true,
+            },
+          },
+        },
+      },
+      driverChosen: {
+        include: {
+          photoAsset: true,
+        },
+      },
     },
   },
 };
