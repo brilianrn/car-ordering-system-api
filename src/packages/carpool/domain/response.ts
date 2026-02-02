@@ -37,6 +37,7 @@ export interface ICombinedRoute {
     bookingNumber: string;
     type: 'PICKUP' | 'DROP';
     location: string;
+    coordinate?: string; // Format: "lat,lng" for geospatial operations
     passengerCount: number;
     sequence: number;
     estimatedTime: Date;

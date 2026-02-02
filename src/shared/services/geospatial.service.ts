@@ -130,11 +130,16 @@ export class GeospatialService {
       await this.cacheRoute(cacheKey, result);
       return result;
     } catch (error) {
-      Logger.error(
-        error instanceof Error ? error.message : 'Error calculating route from coordinates',
-        error instanceof Error ? error.stack : undefined,
-        'GeospatialService.calculateRouteFromCoordinates',
-      );
+      // If it's a format error, log as debug since we might be falling back to addresses
+      if (error instanceof Error && error.message.includes('Invalid coordinate format')) {
+        Logger.debug(error.message, 'GeospatialService.calculateRouteFromCoordinates');
+      } else {
+        Logger.error(
+          error instanceof Error ? error.message : 'Error calculating route from coordinates',
+          error instanceof Error ? error.stack : undefined,
+          'GeospatialService.calculateRouteFromCoordinates',
+        );
+      }
       return null;
     }
   }

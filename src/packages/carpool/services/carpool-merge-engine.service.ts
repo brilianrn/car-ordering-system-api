@@ -1,6 +1,6 @@
+import { GeospatialService } from '@/shared/services/geospatial.service';
 import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
-import { GeospatialService } from '@/shared/services/geospatial.service';
 import { Injectable } from '@nestjs/common';
 import { BookingStatus, Prisma } from '@prisma/client';
 import { ICombinedRoute } from '../domain/response';
@@ -249,6 +249,7 @@ export class CarpoolMergeEngineService {
         bookingNumber: carpoolGroup.hostBooking.bookingNumber,
         type: 'PICKUP',
         location: hostSegment.from,
+        coordinate: hostSegment.originLatLong || undefined,
         passengerCount: carpoolGroup.hostBooking.passengerCount,
         sequence: sequence++,
         estimatedTime: carpoolGroup.hostBooking.startAt,
@@ -264,6 +265,7 @@ export class CarpoolMergeEngineService {
           bookingNumber: invite.joinerBooking.bookingNumber,
           type: 'PICKUP',
           location: joinerSegment.from,
+          coordinate: joinerSegment.originLatLong || undefined,
           passengerCount: invite.joinerBooking.passengerCount,
           sequence: sequence++,
           estimatedTime: invite.joinerBooking.startAt,
@@ -276,6 +278,7 @@ export class CarpoolMergeEngineService {
       bookingId: number;
       bookingNumber: string;
       location: string;
+      coordinate: string | null;
       estimatedTime: Date;
     }> = [];
 
@@ -284,6 +287,7 @@ export class CarpoolMergeEngineService {
         bookingId: carpoolGroup.hostBookingId,
         bookingNumber: carpoolGroup.hostBooking.bookingNumber,
         location: hostSegment.to,
+        coordinate: hostSegment.destinationLatLong,
         estimatedTime: carpoolGroup.hostBooking.endAt,
       });
     }
@@ -295,6 +299,7 @@ export class CarpoolMergeEngineService {
           bookingId: invite.joinerBookingId,
           bookingNumber: invite.joinerBooking.bookingNumber,
           location: joinerSegment.to,
+          coordinate: joinerSegment.destinationLatLong,
           estimatedTime: invite.joinerBooking.endAt,
         });
       }
@@ -316,6 +321,7 @@ export class CarpoolMergeEngineService {
           bookingNumber: drop.bookingNumber,
           type: 'DROP',
           location: drop.location,
+          coordinate: drop.coordinate || undefined,
           passengerCount: booking.passengerCount,
           sequence: sequence++,
           estimatedTime: drop.estimatedTime,
@@ -351,12 +357,12 @@ export class CarpoolMergeEngineService {
       const firstWaypoint = waypoints[0];
       const lastWaypoint = waypoints[waypoints.length - 1];
 
-      // Assume location format is "lat,lng" or address string
-      // For address strings, this will fall back to Haversine estimation
-      const route = await this.geospatialService.calculateRouteFromCoordinates(
-        firstWaypoint.location,
-        lastWaypoint.location,
-      );
+      // Use coordinate field if available, fallback to location name
+      // Note: GeospatialService.calculateRouteFromCoordinates expects "lat,lng" format
+      const origin = firstWaypoint.coordinate || firstWaypoint.location;
+      const destination = lastWaypoint.coordinate || lastWaypoint.location;
+
+      const route = await this.geospatialService.calculateRouteFromCoordinates(origin, destination);
 
       if (route && route.distance > 0) {
         return route.distance;
