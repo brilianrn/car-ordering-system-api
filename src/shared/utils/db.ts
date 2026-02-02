@@ -52,11 +52,17 @@ if (process.env.NODE_ENV !== 'production') {
 
 const adapter = new PrismaPg(pool);
 
+// Get transaction timeout from environment variable or use default 5000ms
+const transactionTimeout = parseInt(process.env.PRISMA_TRANSACTION_TIMEOUT || '5000', 10);
+
 export const clientDb =
   global.prisma ||
   new PrismaClient({
     adapter,
     log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['warn', 'error'],
+    transactionOptions: {
+      timeout: transactionTimeout,
+    },
   });
 
 // Add connection error handling
