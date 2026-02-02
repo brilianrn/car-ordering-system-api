@@ -14,6 +14,7 @@ import { CostVariableModule } from './cost-variable.module';
 import { DriversModule } from './driver.module';
 import { ExecutionModule } from './execution.module';
 import { FinanceModule } from './finance.module';
+import { OrgUnitModule } from './org-unit.module';
 import { ReportsModule } from './reports.module';
 import { UploadModule } from './upload.module';
 import { VehiclesModule } from './vehicles.module';
@@ -25,6 +26,7 @@ import { VehiclesModule } from './vehicles.module';
       envFilePath: '.env',
     }),
     AuthModule,
+    OrgUnitModule,
     VehiclesModule,
     DriversModule,
     UploadModule,
