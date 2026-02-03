@@ -15,10 +15,16 @@ export interface ISearchUserResult {
   } | null;
 }
 
+export interface IVerifyAccountResponse {
+  message: string;
+}
+
 export interface AuthUsecasePort {
   register(dto: RegisterDto): Promise<IUsecaseResponse<IRegisterResponse>>;
 
   login(dto: LoginDto): Promise<IUsecaseResponse<ILoginResponse>>;
 
   searchUsers(dto: SearchUserDto): Promise<IUsecaseResponse<ISearchUserResult[]>>;
+
+  verifyAccount(token: string): Promise<IUsecaseResponse<IVerifyAccountResponse>>;
 }

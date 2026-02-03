@@ -23,6 +23,7 @@ export const authRoute = {
   login: '/login',
   social: '/login/social',
   verifyOtp: '/verify-otp',
+  verify: '/verify',
   searchUser: '/search-user',
 };
 

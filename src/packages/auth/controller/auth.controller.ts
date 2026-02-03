@@ -73,6 +73,39 @@ export class AuthController {
     }
   }
 
+  @Get(authRoute.verify)
+  async verify(@Query('token') token: string, @Res() res: Response) {
+    try {
+      if (!token) {
+        return response[HttpStatus.BAD_REQUEST](res, {
+          message: 'Verification token is required',
+        });
+      }
+
+      const result = await this.usecase.verifyAccount(token);
+
+      if (result?.error) {
+        const statusCode = result.error.code || HttpStatus.BAD_REQUEST;
+        return response[statusCode](res, {
+          message: result.error.message,
+        });
+      }
+
+      return response[HttpStatus.OK](res, {
+        message: result.data?.message || 'Account verified successfully',
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Unknown error in verify controller',
+        error instanceof Error ? error.stack : undefined,
+        'AuthController.verify',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: 'An error occurred during account verification',
+      });
+    }
+  }
+
   @Get(authRoute.searchUser)
   async searchUser(@Query() dto: SearchUserDto, @Res() res: Response) {
     try {

@@ -67,6 +67,7 @@ export class AuthRepository implements AuthRepositoryPort {
     password: string;
     employeeId: string;
     isVerified?: boolean;
+    verificationToken?: string;
   }): Promise<Account> {
     return this.db.account.create({
       data: {
@@ -74,6 +75,62 @@ export class AuthRepository implements AuthRepositoryPort {
         password: data.password,
         employeeId: data.employeeId,
         isVerified: data.isVerified ?? false,
+        verificationToken: data.verificationToken,
+      },
+    });
+  }
+
+  /**
+   * Find account by verification token
+   */
+  async findAccountByToken(token: string): Promise<Account | null> {
+    try {
+      return await this.db.account.findFirst({
+        where: { verificationToken: token },
+      });
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Update account verification (set isVerified = true, remove token)
+   */
+  async updateAccountVerification(id: number): Promise<Account> {
+    return this.db.account.update({
+      where: { id },
+      data: {
+        isVerified: true,
+        verificationToken: null,
+      },
+    });
+  }
+
+  /**
+   * Create placeholder employee for glondongan mode
+   */
+  async createPlaceholderEmployee(data: { employeeId: string; email: string; fullName: string }): Promise<Employee> {
+    // Dynamically find a valid org unit to avoid foreign key constraint errors
+    let orgUnitId = 1;
+    const defaultOrgUnit = await this.db.organizationUnit.findFirst({
+      where: { deletedAt: null },
+      select: { id: true },
+    });
+
+    if (defaultOrgUnit) {
+      orgUnitId = defaultOrgUnit.id;
+    }
+
+    return this.db.employee.create({
+      data: {
+        employeeId: data.employeeId,
+        fullName: data.fullName,
+        email: data.email,
+        orgUnitId: orgUnitId,
+        effectiveRoles: ['USER'],
+        effectiveFrom: new Date(), // Set effective date to now
+        isActive: true,
+        createdBy: 'SYSTEM',
       },
     });
   }

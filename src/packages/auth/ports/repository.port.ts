@@ -12,7 +12,19 @@ export interface AuthRepositoryPort {
     | null
   >;
 
-  createAccount(data: { email: string; password: string; employeeId: string; isVerified?: boolean }): Promise<Account>;
+  createAccount(data: {
+    email: string;
+    password: string;
+    employeeId: string;
+    isVerified?: boolean;
+    verificationToken?: string;
+  }): Promise<Account>;
+
+  createPlaceholderEmployee(data: { employeeId: string; email: string; fullName: string }): Promise<Employee>;
+
+  findAccountByToken(token: string): Promise<Account | null>;
+
+  updateAccountVerification(id: number): Promise<Account>;
 
   searchUsers(params: {
     query?: string;

@@ -12,7 +12,7 @@ interface SendMailProps {
 export const transporter = nodemailer.createTransport({
   host: process.env.NODEMAILER_HOST,
   port: parseInt(process.env.NODEMAILER_PORT || '587', 10),
-  secure: true,
+  secure: process.env.NODEMAILER_PORT === '465', // true for 465, false for other ports like 587
   auth: {
     user: process.env.NODEMAILER_USERNAME,
     pass: process.env.NODEMAILER_PASSWORD,
