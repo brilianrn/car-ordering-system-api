@@ -60,8 +60,23 @@ model Employee {
   bookings        Booking[]
   approverL1      Employee?        @relation("Hierarchy", fields: [approverL1Id], references: [employeeId])
   subordinates    Employee[]       @relation("Hierarchy")
+  account         Account?
 
   @@map("employee")
+}
+
+model Account {
+  id         Int      @id @default(autoincrement())
+  email      String   @unique @map("email")
+  password   String   @map("password")
+  employeeId String   @unique @map("employee_id")
+  isVerified Boolean  @default(false) @map("is_verified")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  employee Employee @relation(fields: [employeeId], references: [employeeId])
+
+  @@map("account")
 }
 
 model Vendor {
