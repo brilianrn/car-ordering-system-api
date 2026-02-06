@@ -15,6 +15,8 @@ export enum ERoutes {
   PARAM_SET = `${EPrefix.V1}/params`,
   RBAC = `${EPrefix.V1}/rbac`,
   CARPOOL = `${EPrefix.V1}/carpool`,
+  APPROVALS = `${EPrefix.V1}/approvals`,
+  ORG_UNIT = `${EPrefix.V1}/org-unit`,
 }
 
 export const authRoute = {
@@ -25,6 +27,11 @@ export const authRoute = {
   verifyOtp: '/verify-otp',
   verify: '/verify',
   searchUser: '/search-user',
+};
+
+export const actionableApprovalRoute = {
+  validateToken: '/validate-token',
+  execute: '/execute',
 };
 
 export const roleRoute = {

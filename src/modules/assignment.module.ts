@@ -1,6 +1,7 @@
 import { AssignmentController } from '@/packages/assignment/controller/assignment.controller';
 import { AssignmentRepository } from '@/packages/assignment/repository/assignment.repository';
 import { AssignmentUseCase } from '@/packages/assignment/usecase/assignment.usecase';
+import { WhatsAppService } from '@/shared/services/whatsapp.service';
 import { NotificationService, S3Service } from '@/shared/utils';
 import { Module } from '@nestjs/common';
 import { RabbitMQModule } from './rabbitmq.module';
@@ -18,6 +19,7 @@ import { RabbitMQModule } from './rabbitmq.module';
       useClass: AssignmentUseCase,
     },
     S3Service,
+    WhatsAppService,
     NotificationService,
   ],
   exports: ['AssignmentUsecasePort', 'AssignmentRepositoryPort'],

@@ -137,7 +137,7 @@ export class AuthUseCase implements AuthUsecasePort {
 
       // 8. Send verification email
       const frontendUrl =
-        this.configService.get<string>('FRONTEND_URL') || this.configService.get<string>('BASE_URL_WEB');
+        this.configService.get<string>('BASE_URL_WEB') || this.configService.get<string>('BASE_URL_WEB');
       const verificationLink = `${frontendUrl}/auth/verify?token=${verificationToken}`;
       const emailHtml = getVerificationEmailTemplate(verificationLink);
 

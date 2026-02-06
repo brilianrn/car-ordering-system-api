@@ -6,6 +6,7 @@ import { RBACModule } from '@/packages/rbac/rbac.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ApprovalModule } from './approval.module';
+import { ApprovalsModule } from './approvals.module';
 import { AssignmentModule } from './assignment.module';
 import { AuthModule } from './auth.module';
 import { BookingsModule } from './bookings.module';
@@ -33,6 +34,7 @@ import { VehiclesModule } from './vehicles.module';
     BookingsModule,
     CarpoolModule,
     ApprovalModule,
+    ApprovalsModule, // Multi-channel actionable approvals
     AssignmentModule,
     ExecutionModule,
     CostVariableModule,

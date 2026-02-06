@@ -2,8 +2,9 @@ import { BookingsController } from '@/packages/bookings/controller/bookings.cont
 import { BookingsRepository } from '@/packages/bookings/repository/bookings.repository';
 import { BookingsUseCase } from '@/packages/bookings/usecase/bookings.usecase';
 import { GeospatialService } from '@/shared/services/geospatial.service';
+import { WhatsAppService } from '@/shared/services/whatsapp.service';
 import { NotificationService, S3Service } from '@/shared/utils';
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { RabbitMQModule } from './rabbitmq.module';
 
 @Module({
@@ -19,6 +20,7 @@ import { RabbitMQModule } from './rabbitmq.module';
       useClass: BookingsUseCase,
     },
     S3Service,
+    WhatsAppService,
     NotificationService,
     GeospatialService,
   ],
