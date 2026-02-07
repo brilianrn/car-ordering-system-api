@@ -133,4 +133,38 @@ export class AuthController {
       });
     }
   }
+
+  @Post(authRoute.ssoLogin)
+  async ssoLogin(@Body() dto: { token: string }, @Res() res: Response) {
+    try {
+      if (!dto.token) {
+        return response[HttpStatus.BAD_REQUEST](res, {
+          message: 'SSO token is required',
+        });
+      }
+
+      const result = await this.usecase.ssoLogin(dto.token);
+
+      if (result?.error) {
+        const statusCode = result.error.code || HttpStatus.BAD_REQUEST;
+        return response[statusCode](res, {
+          message: result.error.message,
+        });
+      }
+
+      return response[HttpStatus.OK](res, {
+        message: 'SSO login successful',
+        data: result.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Unknown error in ssoLogin controller',
+        error instanceof Error ? error.stack : undefined,
+        'AuthController.ssoLogin',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: 'An error occurred during SSO login',
+      });
+    }
+  }
 }

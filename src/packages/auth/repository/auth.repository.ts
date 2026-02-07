@@ -1,6 +1,8 @@
 import { clientDb } from '@/shared/utils';
 import { Injectable } from '@nestjs/common';
 import { Account, Employee, PrismaClient } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import { AuthRepositoryPort } from '../ports/repository.port';
 
 @Injectable()
@@ -211,5 +213,24 @@ export class AuthRepository implements AuthRepositoryPort {
         } | null;
       }>
     >;
+  }
+
+  /**
+   * Create SSO account (no password, auto-verified)
+   */
+  async createSsoAccount(data: { email: string; employeeId: string }): Promise<Account> {
+    // Generate a random password hash (never used, but required by schema)
+    const randomPassword = crypto.randomBytes(32).toString('hex');
+    const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+    return this.db.account.create({
+      data: {
+        email: data.email,
+        password: hashedPassword,
+        employeeId: data.employeeId,
+        isVerified: true, // SSO users are auto-verified
+        verificationToken: null,
+      },
+    });
   }
 }

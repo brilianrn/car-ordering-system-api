@@ -18,6 +18,7 @@ import { FinanceModule } from './finance.module';
 import { OrgUnitModule } from './org-unit.module';
 import { ReportsModule } from './reports.module';
 import { UploadModule } from './upload.module';
+import { UserModule } from './user.module';
 import { VehiclesModule } from './vehicles.module';
 
 @Module({
@@ -27,6 +28,7 @@ import { VehiclesModule } from './vehicles.module';
       envFilePath: '.env',
     }),
     AuthModule,
+    UserModule,
     OrgUnitModule,
     VehiclesModule,
     DriversModule,

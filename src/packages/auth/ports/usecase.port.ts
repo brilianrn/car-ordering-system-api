@@ -27,4 +27,6 @@ export interface AuthUsecasePort {
   searchUsers(dto: SearchUserDto): Promise<IUsecaseResponse<ISearchUserResult[]>>;
 
   verifyAccount(token: string): Promise<IUsecaseResponse<IVerifyAccountResponse>>;
+
+  ssoLogin(token: string): Promise<IUsecaseResponse<ILoginResponse>>;
 }

@@ -5,6 +5,7 @@ export enum EPrefix {
 export enum ERoutes {
   AUTH = `${EPrefix.V1}/auth`,
   USER = `${EPrefix.V1}/user`,
+  USERS = `${EPrefix.V1}/users`,
   ROLE = `${EPrefix.V1}/role`,
   VEHICLES = `${EPrefix.V1}/vehicle`,
   DRIVERS = `${EPrefix.V1}/driver`,
@@ -24,6 +25,7 @@ export const authRoute = {
   registerFullForm: '/register/:token',
   login: '/login',
   social: '/login/social',
+  ssoLogin: '/sso/login',
   verifyOtp: '/verify-otp',
   verify: '/verify',
   searchUser: '/search-user',

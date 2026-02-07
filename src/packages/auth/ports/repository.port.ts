@@ -44,4 +44,6 @@ export interface AuthRepositoryPort {
       } | null;
     }>
   >;
+
+  createSsoAccount(data: { email: string; employeeId: string }): Promise<Account>;
 }

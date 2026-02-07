@@ -336,4 +336,129 @@ export class AuthUseCase implements AuthUsecasePort {
       };
     }
   };
+
+  // =========================================
+  // SSO LOGIN
+  // =========================================
+  ssoLogin = async (token: string): Promise<IUsecaseResponse<ILoginResponse>> => {
+    try {
+      // 1. Validate SSO token and get user data
+      const SsoService = require('../services/sso.service').SsoService;
+      const ssoService = new SsoService(this.configService);
+      const ssoUserData = await ssoService.validateToken(token);
+
+      Logger.info(`SSO login attempt for NPK: ${ssoUserData.npk}`, 'AuthUseCase.ssoLogin');
+
+      // 2. Check if employee exists by NPK
+      let employee = await this.repository.findEmployeeByNik(ssoUserData.npk);
+      let isNewUser = false;
+
+      if (!employee) {
+        // 3. Auto-register new user
+        Logger.info(`Auto-registering new SSO user: ${ssoUserData.npk}`, 'AuthUseCase.ssoLogin');
+        isNewUser = true;
+
+        // Create employee record
+        const newEmployee = await this.repository.createPlaceholderEmployee({
+          employeeId: ssoUserData.npk,
+          email: ssoUserData.email,
+          fullName: ssoUserData.name,
+        });
+
+        // Create SSO account (auto-verified, no password)
+        await this.repository.createSsoAccount({
+          email: ssoUserData.email,
+          employeeId: ssoUserData.npk,
+        });
+
+        // Re-fetch employee with orgUnit relation
+        employee = await this.repository.findEmployeeByNik(ssoUserData.npk);
+
+        if (!employee) {
+          throw new Error('Failed to create employee record');
+        }
+
+        // Send notification to GA Admin
+        const gaAdminEmail = this.configService.get<string>('GA_ADMIN_EMAIL');
+        if (gaAdminEmail) {
+          const frontendUrl = this.configService.get<string>('BASE_URL_WEB') || 'http://localhost:3000';
+          const userManagementLink = `${frontendUrl}/users/${ssoUserData.npk}`;
+
+          await sendMail({
+            to: [gaAdminEmail],
+            subject: `New SSO User Registered: ${ssoUserData.name}`,
+            html: `
+              <h2>New SSO User Registration</h2>
+              <p>A new user has registered via SSO and requires configuration.</p>
+              <ul>
+                <li><strong>Name:</strong> ${ssoUserData.name}</li>
+                <li><strong>NPK:</strong> ${ssoUserData.npk}</li>
+                <li><strong>Email:</strong> ${ssoUserData.email}</li>
+                <li><strong>Registered At:</strong> ${new Date().toLocaleString('id-ID')}</li>
+              </ul>
+              <p>Please configure the user's role and supervisor:</p>
+              <p><a href="${userManagementLink}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Configure User</a></p>
+            `,
+          }).catch((error) => {
+            Logger.error(
+              `Failed to send GA Admin notification for new SSO user ${ssoUserData.npk}`,
+              error,
+              'AuthUseCase.ssoLogin',
+            );
+          });
+        }
+
+        Logger.info(`New SSO user registered successfully: ${ssoUserData.npk}`, 'AuthUseCase.ssoLogin');
+      }
+
+      // 4. Check if employee is active
+      if (!employee.isActive) {
+        return {
+          error: {
+            message: 'Employee account is inactive',
+            code: HttpStatus.UNAUTHORIZED,
+          },
+        };
+      }
+
+      // 5. Generate JWT with proper payload
+      const payload: IJwtPayload = {
+        sub: employee.employeeId,
+        email: employee.email ?? ssoUserData.email,
+        roles: employee.effectiveRoles ?? [],
+        employeeId: employee.employeeId,
+      };
+
+      const accessToken = await this.jwt.signAsync(payload);
+
+      Logger.info(
+        `SSO login successful for ${employee.employeeId}${isNewUser ? ' (new user)' : ''}`,
+        'AuthUseCase.ssoLogin',
+      );
+
+      return {
+        data: {
+          accessToken,
+          user: {
+            employeeId: employee.employeeId,
+            email: employee.email ?? ssoUserData.email,
+            fullName: employee.fullName,
+            roles: employee.effectiveRoles ?? [],
+          },
+        },
+      };
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Unknown error during SSO login',
+        error instanceof Error ? error.stack : undefined,
+        'AuthUseCase.ssoLogin',
+      );
+      return {
+        error: {
+          message: error instanceof Error ? error.message : 'An error occurred during SSO login',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
+  };
 }
