@@ -178,6 +178,7 @@ export class AuthUseCase implements AuthUsecasePort {
       // 1. Find account by email
       const account = await this.repository.findAccountByEmail(dto.email);
       if (!account) {
+        Logger.error(`Account not found for email: ${dto.email}`, 'AuthUseCase.login');
         return {
           error: {
             message: 'Invalid email or password',
@@ -189,6 +190,7 @@ export class AuthUseCase implements AuthUsecasePort {
       // 2. Verify password
       const isPasswordValid = await bcrypt.compare(dto.password, account.password);
       if (!isPasswordValid) {
+        Logger.error(`Invalid password for email: ${dto.email}`, 'AuthUseCase.login');
         return {
           error: {
             message: 'Invalid email or password',
@@ -199,6 +201,7 @@ export class AuthUseCase implements AuthUsecasePort {
 
       // 3. Check if account is verified
       if (!account.isVerified) {
+        Logger.error(`Account not verified for email: ${dto.email}`, 'AuthUseCase.login');
         return {
           error: {
             message: 'Account not verified. Please verify your email first.',
@@ -210,6 +213,7 @@ export class AuthUseCase implements AuthUsecasePort {
       // 4. Check if employee is active
       const employee = account.employee;
       if (!employee.isActive) {
+        Logger.error(`Employee account is inactive for email: ${dto.email}`, 'AuthUseCase.login');
         return {
           error: {
             message: 'Employee account is inactive',

@@ -46,7 +46,7 @@ export class AuthRepository implements AuthRepositoryPort {
    */
   async findAccountByEmail(email: string): Promise<(Account & { employee: Employee & { orgUnit: any } }) | null> {
     try {
-      return await this.db.account.findUnique({
+      const res = await this.db.account.findUnique({
         where: { email },
         include: {
           employee: {
@@ -56,6 +56,7 @@ export class AuthRepository implements AuthRepositoryPort {
           },
         },
       });
+      return res;
     } catch (error) {
       return null;
     }
