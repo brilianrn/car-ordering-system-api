@@ -6,16 +6,16 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Copy Prisma schema dulu biar layer install lebih cepat
+# Copy Prisma schema agar caching layer install lebih efisien
 COPY src/shared/database/prisma ./src/shared/database/prisma/
 
-# Install dependencies (termasuk prisma)
+# Install dependencies (termasuk devDependencies untuk build)
 RUN npm install
 
-# Copy source code (Pastikan ada .dockerignore biar .env gak ikut)
+# Copy semua source code
 COPY . .
 
-# Generate Prisma Client & Build
+# Generate Prisma Client & Build Production
 RUN npx prisma generate --schema=./src/shared/database/prisma/schema.prisma
 RUN npm run build
 
@@ -24,7 +24,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Ambil hasil build dan dependencies dari builder
+# Copy hasil build dan node_modules yang sudah jadi dari stage builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package*.json ./
@@ -33,7 +33,9 @@ COPY --from=builder /app/src/shared/database/prisma ./src/shared/database/prisma
 # Set environment variables default
 ENV PORT=3001
 ENV NODE_ENV=production
+
+# Expose port agar Koyeb tahu jalur trafficnya
 EXPOSE 3001
 
-# Jalankan aplikasi
-CMD ["node", "dist/src/main"]
+# Menggunakan sh -c agar bisa menjalankan dua perintah sekaligus
+CMD ["sh", "-c", "npx prisma db push --schema=./src/shared/database/prisma/schema.prisma && node dist/main"]
