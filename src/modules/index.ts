@@ -1,6 +1,7 @@
 import { SchedulerPackageModule } from '@/modules/scheduler.module';
 import { AnalyticsModule } from '@/packages/analytics/analytics.module';
 import { CategoryModule } from '@/packages/category/category.module';
+import { EmployeesModule } from '@/packages/employees/employees.module';
 import { ParamSetModule } from '@/packages/param-set/param-set.module';
 import { RBACModule } from '@/packages/rbac/rbac.module';
 import { Module } from '@nestjs/common';
@@ -29,6 +30,7 @@ import { VehiclesModule } from './vehicles.module';
     }),
     AuthModule,
     UserModule,
+    EmployeesModule,
     OrgUnitModule,
     VehiclesModule,
     DriversModule,

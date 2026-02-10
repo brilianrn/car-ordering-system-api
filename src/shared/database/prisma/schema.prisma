@@ -61,6 +61,7 @@ model Employee {
   approverL1      Employee?        @relation("Hierarchy", fields: [approverL1Id], references: [employeeId])
   subordinates    Employee[]       @relation("Hierarchy")
   account         Account?
+  driverProfile   Driver?
 
   @@map("employee")
 }
@@ -173,6 +174,7 @@ model Driver {
   driverCode         String           @unique @map("driver_code")
   fullName           String           @map("full_name")
   internalNik        String?          @map("internal_nik")
+  employeeId         String?          @unique @map("employee_id")
   driverType         DriverType       @default(INTERNAL) @map("driver_type")
   vendorId           Int?             @map("vendor_id")
   simNumber          String           @unique @map("sim_number")
@@ -200,6 +202,7 @@ model Driver {
   photoAsset         Asset?           @relation("DriverPhoto", fields: [photoAssetId], references: [id])
   ktpAsset           Asset?           @relation("DriverKTP", fields: [ktpAssetId], references: [id])
   simAsset           Asset?           @relation("DriverSIM", fields: [simAssetId], references: [id])
+  employee           Employee?        @relation(fields: [employeeId], references: [employeeId])
 
   @@map("driver")
 }

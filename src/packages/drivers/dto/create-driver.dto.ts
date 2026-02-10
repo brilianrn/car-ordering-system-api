@@ -28,6 +28,10 @@ export class CreateDriverDto {
   @IsString()
   internalNik?: string;
 
+  @IsOptional()
+  @IsString()
+  employeeId?: string;
+
   @IsEnum(DriverType)
   driverType: DriverType;
 
