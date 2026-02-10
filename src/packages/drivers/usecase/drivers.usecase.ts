@@ -137,10 +137,37 @@ export class DriversUseCase implements DriversUsecasePort {
         };
       }
 
-      if (createDto.driverType === DriverType.INTERNAL && createDto.vendorId) {
+      if (createDto.driverType === DriverType.INTERNAL) {
+        if (createDto.vendorId) {
+          return {
+            error: {
+              message: 'VENDOR_NOT_ALLOWED_FOR_INTERNAL',
+              code: 400,
+            },
+          };
+        }
+
+        if (createDto.employeeId) {
+          // Check if employee already has a driver profile
+          const existingEmployeeDriver = await this.repository.findFirst({
+            employeeId: createDto.employeeId,
+          });
+
+          if (existingEmployeeDriver) {
+            return {
+              error: {
+                message: 'EMPLOYEE_ALREADY_HAS_DRIVER_PROFILE',
+                code: 409,
+              },
+            };
+          }
+        }
+      }
+
+      if (createDto.driverType === DriverType.EXTERNAL && createDto.employeeId) {
         return {
           error: {
-            message: 'VENDOR_NOT_ALLOWED_FOR_INTERNAL',
+            message: 'EMPLOYEE_ID_NOT_ALLOWED_FOR_EXTERNAL',
             code: 400,
           },
         };
@@ -173,6 +200,10 @@ export class DriversUseCase implements DriversUsecasePort {
         vendor:
           createDto.driverType === DriverType.EXTERNAL && createDto.vendorId
             ? { connect: { id: createDto.vendorId } }
+            : undefined,
+        employee:
+          createDto.driverType === DriverType.INTERNAL && createDto.employeeId
+            ? { connect: { employeeId: createDto.employeeId } }
             : undefined,
         simNumber: createDto.simNumber,
         simExpiry: new Date(createDto.simExpiry),

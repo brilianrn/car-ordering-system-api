@@ -8,6 +8,7 @@ export enum ERoutes {
   USERS = `${EPrefix.V1}/users`,
   ROLE = `${EPrefix.V1}/role`,
   VEHICLES = `${EPrefix.V1}/vehicle`,
+  EMPLOYEES = `${EPrefix.V1}/employees`,
   DRIVERS = `${EPrefix.V1}/driver`,
   UPLOAD = `${EPrefix.V1}/upload`,
   BOOKINGS = `${EPrefix.V1}/booking`,
