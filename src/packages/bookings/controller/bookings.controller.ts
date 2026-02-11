@@ -1,3 +1,6 @@
+import { Roles } from '@/packages/auth/decorators/roles.decorator';
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
+import { RolesGuard } from '@/packages/auth/guards/roles.guard';
 import { bookingRoute, ERoutes, tripRoute, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
@@ -14,7 +17,9 @@ import {
   Post,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import type { Response } from 'express';
 import { CreateBookingDto } from '../dto/create-booking.dto';
 import { QueryAvailableVehiclesDto } from '../dto/query-available-vehicles.dto';
@@ -24,6 +29,8 @@ import { BookingsControllerPort } from '../ports/controller.port';
 import { BookingsUsecasePort } from '../ports/usecase.port';
 
 @Controller(ERoutes.BOOKINGS)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.USER, Role.DRIVER, Role.GA, Role.ADMIN)
 export class BookingsController implements BookingsControllerPort {
   constructor(
     @Inject('BookingsUsecasePort')

@@ -1,3 +1,6 @@
+import { Roles } from '@/packages/auth/decorators/roles.decorator';
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
+import { RolesGuard } from '@/packages/auth/guards/roles.guard';
 import { ERoutes, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
@@ -15,13 +18,17 @@ import {
   Post,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import type { Response } from 'express';
 import { CreateCategoryDto, QueryCategoryDto, UpdateCategoryDto } from '../dto';
 import { CategoryControllerPort } from '../ports/controller.port';
 import { CategoryUsecasePort } from '../ports/usecase.port';
 
 @Controller(ERoutes.CATEGORY)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.GA, Role.ADMIN)
 export class CategoryController implements CategoryControllerPort {
   constructor(
     @Inject('CategoryUsecasePort')

@@ -62,3 +62,14 @@ export interface IUsecaseResponse<T> {
     code?: number;
   };
 }
+
+export interface IPaginationResponse<T> {
+  total_items: number;
+  total_pages: number;
+  current_page: number;
+  items: T[];
+  links: {
+    prev: string | null;
+    next: string | null;
+  };
+}

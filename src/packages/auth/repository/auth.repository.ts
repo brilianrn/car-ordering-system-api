@@ -339,7 +339,10 @@ export class AuthRepository implements AuthRepositoryPort {
           orgUnitId: orgUnitId,
           phoneNumber: data.phoneNumber,
           photoUrl: data.photoUrl,
-          // Update position if we had a field for it, currently generic
+          position: data.position,
+          userType: data.userType,
+          vendorName: data.vendorName,
+          updatedBy: 'SYSTEM-SSO',
         },
         create: {
           employeeId: data.employeeId,
@@ -348,6 +351,9 @@ export class AuthRepository implements AuthRepositoryPort {
           orgUnitId: orgUnitId,
           phoneNumber: data.phoneNumber,
           photoUrl: data.photoUrl,
+          position: data.position,
+          userType: data.userType,
+          vendorName: data.vendorName,
           effectiveRoles: ['USER'], // Default role for new users
           effectiveFrom: new Date(),
           isActive: true,
@@ -406,34 +412,8 @@ export class AuthRepository implements AuthRepositoryPort {
         }
       }
 
-      // 5. Driver Logic (External Users)
-      let driverProfile = employee.driverProfile;
-      if (data.userType === 'External' && !driverProfile) {
-        // Check criteria (e.g., specific prefix or just being External)
-        // For now, if External, we ensure a Driver profile exists
-        const vendorName =
-          data.vendorName && data.vendorName !== 'null' && data.vendorName !== 'undefined'
-            ? data.vendorName
-            : 'External Driver';
-
-        driverProfile = await tx.driver.create({
-          data: {
-            employeeId: data.employeeId,
-            fullName: data.fullName,
-            driverCode: `DRV-${data.employeeId}`,
-            simNumber: data.employeeId,
-            simExpiry: new Date(new Date().setFullYear(new Date().getFullYear() + 1)), // 1 year expiry default
-            plantLocation: 'Head Office', // Default
-            createdBy: 'SYSTEM-SSO',
-            // Wait, USER REQUEST said "vendor_name": "null".
-            // Let's check Driver schema. If no vendor field, assume it's not needed or mapped differently.
-            // Previous context didn't show Driver schema.
-            // I will assume for now 'vendor' is not on Driver model based on previous lint errors (only missing fields were driverCode... createdBy).
-            // But wait, if it's External/Vendor, they might need vendor info.
-            // I'll stick to what worked before + safety checks.
-          },
-        });
-      }
+      // 5. Driver Logic (Removed as per USER REQUEST: drivers are created manually by GA)
+      const driverProfile = employee.driverProfile;
 
       return {
         ...employee,

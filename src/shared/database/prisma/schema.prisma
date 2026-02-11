@@ -43,6 +43,8 @@ model Employee {
   immediateManager    String?   @map("immediate_manager")
   phoneNumber         String?   @map("phone_number")
   photoUrl            String?   @map("photo_url")
+  userType            String?   @map("user_type")
+  vendorName          String?   @map("vendor_name")
   createdAt           DateTime  @default(now()) @map("created_at")
   createdBy           String    @map("created_by")
   updatedAt           DateTime  @updatedAt @map("updated_at")

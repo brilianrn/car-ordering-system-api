@@ -1,7 +1,23 @@
+import { Roles } from '@/packages/auth/decorators/roles.decorator';
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
+import { RolesGuard } from '@/packages/auth/guards/roles.guard';
 import { ERoutes, executionRoute, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
-import { Body, Controller, Headers, HttpStatus, Inject, Param, ParseIntPipe, Patch, Post, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpStatus,
+  Inject,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import { Role } from '@prisma/client';
 import type { Response } from 'express';
 import { CheckInSegmentDto } from '../dto/check-in-segment.dto';
 import { CheckOutSegmentDto } from '../dto/check-out-segment.dto';
@@ -12,6 +28,8 @@ import { VerifyExecutionDto } from '../dto/verify-execution.dto';
 import { ExecutionUsecasePort } from '../ports/usecase.port';
 
 @Controller(`${ERoutes.BOOKINGS}${executionRoute.base}`)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.DRIVER, Role.GA, Role.ADMIN)
 export class ExecutionController {
   constructor(
     @Inject('ExecutionUsecasePort')

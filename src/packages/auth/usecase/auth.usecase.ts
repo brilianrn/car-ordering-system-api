@@ -439,7 +439,9 @@ export class AuthUseCase implements AuthUsecasePort {
       const payload: IJwtPayload = {
         sub: employeeForToken.account.id.toString(), // Account ID as sub
         email: employeeForToken.account.email,
-        roles: (employeeForToken as any).effectiveRoles?.map((r: any) => r.role?.name || 'USER') || ['USER'],
+        roles: (employeeForToken as any).effectiveRoles?.map((r: any) =>
+          typeof r === 'string' ? r : r.role?.name || 'USER',
+        ) || ['USER'],
         employeeId: employeeForToken.employeeId,
         driverId: employeeForToken.driverProfile?.id,
         fullName: employeeForToken.fullName,

@@ -1,3 +1,6 @@
+import { Roles } from '@/packages/auth/decorators/roles.decorator';
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
+import { RolesGuard } from '@/packages/auth/guards/roles.guard';
 import { ERoutes, validationMessage, vehicleRoute } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
@@ -16,7 +19,9 @@ import {
   Put,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import type { Response } from 'express';
 import { CreateVehicleDto } from '../dto/create-vehicle.dto';
 import { QueryVehicleDto } from '../dto/query-vehicle.dto';
@@ -25,6 +30,8 @@ import { VehiclesControllerPort } from '../ports/controller.port';
 import { VehiclesUsecasePort } from '../ports/usecase.port';
 
 @Controller(ERoutes.VEHICLES)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.GA, Role.ADMIN)
 export class VehiclesController implements VehiclesControllerPort {
   constructor(
     @Inject('VehiclesUsecasePort')

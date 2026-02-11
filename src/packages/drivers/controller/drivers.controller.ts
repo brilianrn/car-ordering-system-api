@@ -1,4 +1,7 @@
-import { ERoutes, driverRoute, validationMessage } from '@/shared/constants';
+import { Roles } from '@/packages/auth/decorators/roles.decorator';
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
+import { RolesGuard } from '@/packages/auth/guards/roles.guard';
+import { driverRoute, ERoutes, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
 import {
@@ -14,7 +17,9 @@ import {
   Post,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import type { Response } from 'express';
 import { CreateDriverDto } from '../dto/create-driver.dto';
 import { EligibleDriverQueryDto } from '../dto/eligible-driver-query.dto';
@@ -24,6 +29,8 @@ import { DriversControllerPort } from '../ports/controller.port';
 import { DriversUseCase } from '../usecase/drivers.usecase';
 
 @Controller(ERoutes.DRIVERS)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.GA, Role.ADMIN)
 export class DriversController implements DriversControllerPort {
   constructor(private readonly driversUseCase: DriversUseCase) {}
 
