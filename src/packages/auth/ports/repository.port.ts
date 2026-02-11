@@ -1,9 +1,11 @@
-import { Account, Employee } from '@prisma/client';
+import { Account, Driver, Employee, Role } from '@prisma/client';
 
 export interface AuthRepositoryPort {
   findEmployeeByEmail(email: string): Promise<(Employee & { orgUnit: any }) | null>;
 
-  findEmployeeByNik(nik: string): Promise<(Employee & { orgUnit: any }) | null>;
+  findEmployeeByNik(
+    nik: string,
+  ): Promise<(Employee & { orgUnit: any; account: Account | null; driverProfile: Driver | null }) | null>;
 
   findAccountByEmail(email: string): Promise<
     | (Account & {
@@ -46,4 +48,27 @@ export interface AuthRepositoryPort {
   >;
 
   createSsoAccount(data: { email: string; employeeId: string }): Promise<Account>;
+
+  findOrgUnitByName(name: string): Promise<{ id: number; code: string } | null>;
+
+  upsertSSOUser(data: {
+    employeeId: string;
+    fullName: string;
+    email: string;
+    passwordHash: string;
+    department?: string;
+    division?: string;
+    userType?: 'Internal' | 'External';
+    roleName?: string;
+    position?: string;
+    phoneNumber?: string;
+    photoUrl?: string;
+    vendorName?: string;
+  }): Promise<Employee & { account: Account | null; driverProfile: Driver | null; effectiveRoles: Role[] }>;
+
+  createEmployee(data: { employeeId: string; fullName: string; email: string; orgUnitId: number }): Promise<Employee>;
+  /**
+   * Validate SSO token with external provider
+   */
+  validateSSOToken(token: string): Promise<any>;
 }

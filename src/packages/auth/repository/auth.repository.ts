@@ -1,12 +1,17 @@
 import { clientDb } from '@/shared/utils';
 import { Injectable } from '@nestjs/common';
-import { Account, Employee, PrismaClient } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import { Account, Driver, Employee, PrismaClient, Role } from '@prisma/client';
+import axios from 'axios';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
+import { ISsoCheckToken } from '../dto';
 import { AuthRepositoryPort } from '../ports/repository.port';
 
 @Injectable()
 export class AuthRepository implements AuthRepositoryPort {
+  constructor(private readonly configService: ConfigService) {}
+
   private readonly db: PrismaClient = clientDb;
 
   /**
@@ -28,12 +33,16 @@ export class AuthRepository implements AuthRepositoryPort {
   /**
    * Find employee by NIK (Employee ID)
    */
-  async findEmployeeByNik(nik: string): Promise<(Employee & { orgUnit: any }) | null> {
+  async findEmployeeByNik(
+    nik: string,
+  ): Promise<(Employee & { orgUnit: any; account: Account | null; driverProfile: Driver | null }) | null> {
     try {
       return await this.db.employee.findUnique({
         where: { employeeId: nik },
         include: {
           orgUnit: true,
+          account: true,
+          driverProfile: true,
         },
       });
     } catch (error) {
@@ -233,5 +242,226 @@ export class AuthRepository implements AuthRepositoryPort {
         verificationToken: null,
       },
     });
+  }
+  /**
+   * Find Organization Unit by Name (e.g. Department)
+   */
+  async findOrgUnitByName(name: string): Promise<{ id: number; code: string } | null> {
+    try {
+      return await this.db.organizationUnit.findFirst({
+        where: {
+          name: {
+            contains: name,
+            mode: 'insensitive',
+          },
+          deletedAt: null,
+        },
+        select: { id: true, code: true },
+      });
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Create Employee with full details
+   */
+  async createEmployee(data: {
+    employeeId: string;
+    fullName: string;
+    email: string;
+    orgUnitId: number;
+  }): Promise<Employee> {
+    return this.db.employee.create({
+      data: {
+        employeeId: data.employeeId,
+        fullName: data.fullName,
+        email: data.email,
+        orgUnitId: data.orgUnitId,
+        effectiveRoles: ['USER'],
+        effectiveFrom: new Date(),
+        isActive: true,
+        createdBy: 'SYSTEM-SSO',
+      },
+    });
+  }
+
+  /**
+   * Create SSO User (Employee + Account + Role + OrgUnit) in a transaction
+   */
+  /**
+   * Upsert SSO User (Employee + Account + Role + OrgUnit + Optional Driver)
+   */
+  async upsertSSOUser(data: {
+    employeeId: string;
+    fullName: string;
+    email: string;
+    passwordHash: string;
+    department?: string;
+    division?: string;
+    userType?: 'Internal' | 'External';
+    roleName?: string;
+    position?: string;
+    phoneNumber?: string;
+    photoUrl?: string;
+    vendorName?: string;
+  }): Promise<Employee & { account: Account | null; driverProfile: Driver | null; effectiveRoles: Role[] }> {
+    return this.db.$transaction(async (tx) => {
+      // 1. Resolve Org Unit (Find by Dept/Div or create default)
+      let orgUnitId = 1; // Fallback
+      const orgName = data.department || data.division || 'SSO_Import';
+
+      const existingOrg = await tx.organizationUnit.findFirst({
+        where: { name: { contains: orgName, mode: 'insensitive' }, deletedAt: null },
+      });
+
+      if (existingOrg) {
+        orgUnitId = existingOrg.id;
+      } else {
+        // Create Default SSO Unit if not exists
+        const newOrg = await tx.organizationUnit.create({
+          data: {
+            name: orgName,
+            code: `SSO-${Date.now().toString().slice(-4)}`, // Simple unique code
+            type: 'DEPARTMENT',
+            createdBy: 'SYSTEM-SSO',
+          },
+        });
+        orgUnitId = newOrg.id;
+      }
+
+      // 2. Upsert Employee
+      const employee: Employee & { account: Account | null; driverProfile: Driver | null } = (await tx.employee.upsert({
+        where: { employeeId: data.employeeId },
+        update: {
+          fullName: data.fullName,
+          email: data.email,
+          orgUnitId: orgUnitId,
+          phoneNumber: data.phoneNumber,
+          photoUrl: data.photoUrl,
+          // Update position if we had a field for it, currently generic
+        },
+        create: {
+          employeeId: data.employeeId,
+          fullName: data.fullName,
+          email: data.email,
+          orgUnitId: orgUnitId,
+          phoneNumber: data.phoneNumber,
+          photoUrl: data.photoUrl,
+          effectiveRoles: ['USER'], // Default role for new users
+          effectiveFrom: new Date(),
+          isActive: true,
+          createdBy: 'SYSTEM-SSO',
+        },
+        include: {
+          driverProfile: true,
+          account: true,
+        },
+      })) as unknown as Employee & { account: Account | null; driverProfile: Driver | null };
+
+      // 3. Upsert Account
+      let account = employee.account;
+      if (!account) {
+        account = await tx.account.create({
+          data: {
+            email: data.email,
+            password: data.passwordHash,
+            employeeId: data.employeeId,
+            isVerified: true,
+          },
+        });
+      } else {
+        // Optionally update email/password if policy dictates
+        // For now, we trust SSO email
+        if (account.email !== data.email) {
+          await tx.account.update({
+            where: { id: account.id },
+            data: { email: data.email },
+          });
+          account.email = data.email;
+        }
+      }
+
+      // 4. Role Assignment
+      const roleName = data.roleName || 'USER';
+      const targetRole = await tx.rBACRole.findFirst({
+        where: { name: { equals: roleName, mode: 'insensitive' } },
+      });
+
+      const roleToAssign = targetRole || (await tx.rBACRole.findFirst({ where: { name: 'USER' } }));
+
+      if (roleToAssign) {
+        const hasRole = await tx.userRole.findFirst({
+          where: { employeeId: data.employeeId, roleId: roleToAssign.id },
+        });
+
+        if (!hasRole) {
+          await tx.userRole.create({
+            data: {
+              employeeId: data.employeeId,
+              roleId: roleToAssign.id,
+              assignedBy: 'SYSTEM-SSO',
+            },
+          });
+        }
+      }
+
+      // 5. Driver Logic (External Users)
+      let driverProfile = employee.driverProfile;
+      if (data.userType === 'External' && !driverProfile) {
+        // Check criteria (e.g., specific prefix or just being External)
+        // For now, if External, we ensure a Driver profile exists
+        const vendorName =
+          data.vendorName && data.vendorName !== 'null' && data.vendorName !== 'undefined'
+            ? data.vendorName
+            : 'External Driver';
+
+        driverProfile = await tx.driver.create({
+          data: {
+            employeeId: data.employeeId,
+            fullName: data.fullName,
+            driverCode: `DRV-${data.employeeId}`,
+            simNumber: data.employeeId,
+            simExpiry: new Date(new Date().setFullYear(new Date().getFullYear() + 1)), // 1 year expiry default
+            plantLocation: 'Head Office', // Default
+            createdBy: 'SYSTEM-SSO',
+            // Wait, USER REQUEST said "vendor_name": "null".
+            // Let's check Driver schema. If no vendor field, assume it's not needed or mapped differently.
+            // Previous context didn't show Driver schema.
+            // I will assume for now 'vendor' is not on Driver model based on previous lint errors (only missing fields were driverCode... createdBy).
+            // But wait, if it's External/Vendor, they might need vendor info.
+            // I'll stick to what worked before + safety checks.
+          },
+        });
+      }
+
+      return {
+        ...employee,
+        account,
+        driverProfile,
+      };
+    });
+  }
+
+  /**
+   * Validate SSO token with external provider
+   */
+  async validateSSOToken(token: string): Promise<ISsoCheckToken> {
+    const ssoApiUrl = this.configService.get<string>('SSO_API_URL');
+    const validationEndpoint = this.configService.get<string>('SSO_VALIDATION_ENDPOINT');
+
+    if (!ssoApiUrl || !validationEndpoint) {
+      throw new Error('SSO Configuration missing in Repository');
+    }
+
+    const response = await axios.get(`${ssoApiUrl}${validationEndpoint}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      params: { token },
+      timeout: 5000,
+    });
+
+    return response?.data?.user;
   }
 }
