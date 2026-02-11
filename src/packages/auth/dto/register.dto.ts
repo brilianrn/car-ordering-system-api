@@ -10,4 +10,8 @@ export class RegisterDto {
 
   @IsString()
   nik: string; // Employee ID
+
+  @IsString()
+  @MinLength(3)
+  fullName?: string;
 }
