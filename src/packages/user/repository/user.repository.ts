@@ -10,7 +10,7 @@ import { UserRepositoryPort } from '../ports/repository.port';
 export class UserRepository implements UserRepositoryPort {
   private readonly db: PrismaClient = clientDb;
 
-  async findAll(query: ListUserQueryDto): Promise<IPaginationResponse<Employee>> {
+  async findAll(query: ListUserQueryDto): Promise<IPaginationResponse<Employee & { supervisor: any }>> {
     const { search, role, department, orderBy, orderDirection } = query;
     const page = query.page || 1;
     const limit = query.limit || 10;
@@ -49,6 +49,7 @@ export class UserRepository implements UserRepositoryPort {
         orderBy: orderBy ? { [orderBy]: orderDirection || 'asc' } : { createdAt: 'desc' },
         include: {
           orgUnit: true,
+          approverL1: true,
           userRoles: {
             include: { role: true },
           },
@@ -56,23 +57,46 @@ export class UserRepository implements UserRepositoryPort {
       }),
     ]);
 
-    return new Pagination(page, limit).paginate({ count, rows });
+    const mappedRows = rows.map((row: any) => ({
+      ...row,
+      supervisor: row.approverL1
+        ? {
+            employeeId: row.approverL1.employeeId,
+            fullName: row.approverL1.fullName,
+          }
+        : null,
+    }));
+
+    return new Pagination(page, limit).paginate({ count, rows: mappedRows as any });
   }
 
   async findEmployeeById(
     employeeId: string,
-  ): Promise<(Employee & { orgUnit: any; userRoles: any[]; driverProfile: any }) | null> {
+  ): Promise<(Employee & { orgUnit: any; userRoles: any[]; driverProfile: any; supervisor: any }) | null> {
     try {
-      return await this.db.employee.findUnique({
+      const employee = (await this.db.employee.findUnique({
         where: { employeeId, deletedAt: null },
         include: {
           orgUnit: true,
+          approverL1: true,
           userRoles: {
             include: { role: true },
           },
           driverProfile: true,
         },
-      });
+      })) as any;
+
+      if (!employee) return null;
+
+      return {
+        ...employee,
+        supervisor: employee.approverL1
+          ? {
+              employeeId: employee.approverL1.employeeId,
+              fullName: employee.approverL1.fullName,
+            }
+          : null,
+      };
     } catch (error) {
       return null;
     }

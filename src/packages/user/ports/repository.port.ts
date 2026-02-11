@@ -3,10 +3,10 @@ import { Employee, Role } from '@prisma/client';
 import { ListUserQueryDto } from '../dto/list-user-query.dto';
 
 export interface UserRepositoryPort {
-  findAll(query: ListUserQueryDto): Promise<IPaginationResponse<Employee>>;
+  findAll(query: ListUserQueryDto): Promise<IPaginationResponse<Employee & { supervisor: any }>>;
   findEmployeeById(
     employeeId: string,
-  ): Promise<(Employee & { orgUnit: any; userRoles: any[]; driverProfile: any }) | null>;
+  ): Promise<(Employee & { orgUnit: any; userRoles: any[]; driverProfile: any; supervisor: any }) | null>;
   softDelete(employeeId: string, deletedBy: string): Promise<boolean>;
 
   updateEmployee(

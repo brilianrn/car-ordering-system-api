@@ -1,16 +1,18 @@
+import { ERoutes } from '@/shared/constants/routes';
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { GetOrgUnitsDto } from '../dto';
 import { OrgUnitUseCase } from '../usecase';
 
-@Controller('api/v1/master/org-units')
+@Controller(ERoutes.ORG_UNIT)
 export class OrgUnitController {
   constructor(private readonly usecase: OrgUnitUseCase) {}
 
   /**
-   * GET /api/v1/master/org-units
+   * GET /api/v1/org-unit/list
+   * GET /api/v1/org-unit
    * Get organization units with optional filters (flat list)
    */
-  @Get()
+  @Get(['', 'list'])
   async getOrgUnits(@Query() dto: GetOrgUnitsDto) {
     return await this.usecase.getOrgUnits(dto);
   }
