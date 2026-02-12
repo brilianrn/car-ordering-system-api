@@ -1,13 +1,47 @@
-import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
+import { IPaginationResponse, IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { buildOrgUnitTree, getOrgDescendants } from '../domain/helpers';
-import { GetOrgUnitsDto, IOrgUnitDetailResponse, IOrgUnitResponse, IOrgUnitTreeNode } from '../dto';
+import { GetOrgUnitsDto, IOrgUnit, IOrgUnitDetailResponse, IOrgUnitResponse, IOrgUnitTreeNode } from '../dto';
 import { OrgUnitRepository } from '../repository';
 
 @Injectable()
 export class OrgUnitUseCase {
   constructor(private readonly repository: OrgUnitRepository) {}
+
+  /**
+   * Get organization units with pagination
+   */
+  async getOrgUnitsPaginated(dto: GetOrgUnitsDto): Promise<IUsecaseResponse<IPaginationResponse<IOrgUnit>>> {
+    try {
+      const result = await this.repository.findAllPaginated(dto);
+
+      const items: IOrgUnit[] = result.items.map((unit) => ({
+        id: unit.id,
+        code: unit.code,
+        name: unit.name,
+        type: unit.type,
+        parentCode: unit.parentCode,
+        parentName: unit.parent?.name,
+        costCenter: null, // Not in schema
+        description: undefined, // Not in schema
+      }));
+
+      return {
+        data: {
+          ...result,
+          items,
+        },
+      };
+    } catch (error) {
+      return {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to retrieve organization units',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
+  }
 
   /**
    * Get organization units with optional filters (flat list)

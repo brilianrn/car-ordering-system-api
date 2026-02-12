@@ -1,12 +1,61 @@
 import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
+import { Pagination } from '@/shared/utils/rest-api/pagination';
+import { IPaginationResponse } from '@/shared/utils/rest-api/types';
 import { Injectable } from '@nestjs/common';
 import { OrganizationUnit, Prisma, PrismaClient } from '@prisma/client';
+import { GetOrgUnitsDto } from '../dto';
 import { OrgUnitRepositoryPort } from '../ports';
 
 @Injectable()
 export class OrgUnitRepository implements OrgUnitRepositoryPort {
   private readonly db: PrismaClient = clientDb;
+
+  async findAllPaginated(
+    query: GetOrgUnitsDto,
+  ): Promise<IPaginationResponse<OrganizationUnit & { parent: OrganizationUnit | null }>> {
+    try {
+      const { page = 1, limit = 10, search, type, orderBy, orderDirection } = query;
+      const skip = (page - 1) * limit;
+
+      const where: Prisma.OrganizationUnitWhereInput = {
+        deletedAt: null,
+      };
+
+      if (search) {
+        where.OR = [
+          { name: { contains: search, mode: 'insensitive' } },
+          { code: { contains: search, mode: 'insensitive' } },
+        ];
+      }
+
+      if (type) {
+        where.type = type;
+      }
+
+      const [count, rows] = await Promise.all([
+        this.db.organizationUnit.count({ where }),
+        this.db.organizationUnit.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy: orderBy ? { [orderBy]: orderDirection || 'asc' } : [{ type: 'asc' }, { name: 'asc' }],
+          include: {
+            parent: true,
+          },
+        }),
+      ]);
+
+      return new Pagination(page, limit).paginate({ count, rows });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findAllPaginated',
+        error instanceof Error ? error.stack : undefined,
+        'OrgUnitRepository.findAllPaginated',
+      );
+      throw error;
+    }
+  }
 
   /**
    * Find organization units with optional filters

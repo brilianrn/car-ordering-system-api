@@ -1,7 +1,8 @@
+import { PaginationQueryDto } from '@/shared/dto/pagination-query.dto';
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsOptional, IsString } from 'class-validator';
 
-export class GetOrgUnitsDto {
+export class GetOrgUnitsDto extends PaginationQueryDto {
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()

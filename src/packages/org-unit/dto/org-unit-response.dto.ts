@@ -26,3 +26,14 @@ export interface IOrgUnitDetailResponse extends IOrgUnitResponse {
     type: string;
   } | null;
 }
+
+export interface IOrgUnit {
+  id: number;
+  code: string;
+  name: string;
+  type: string;
+  parentCode: string | null;
+  parentName?: string;
+  costCenter: string | null;
+  description?: string;
+}
