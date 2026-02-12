@@ -1,7 +1,8 @@
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
 import { validationMessage } from '@/shared/constants/validation-message';
 import { response } from '@/shared/utils/rest-api/response';
 import { ResponseREST } from '@/shared/utils/rest-api/types';
-import { Body, Controller, Get, Headers, HttpStatus, Logger, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpStatus, Logger, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { ChartData, DashboardData, RecapData, ReportSummary } from '../domain/types';
 import { ExportReportDto, RecapQueryDto, ReportQueryDto } from '../dto/report-query.dto';
@@ -9,6 +10,7 @@ import { ReportsControllerPort } from '../ports/controller.port';
 import { ReportsService } from '../usecase/reports.usecase';
 
 @Controller('api/v1/reports')
+@UseGuards(JwtAuthGuard)
 export class ReportsController implements ReportsControllerPort {
   constructor(private readonly reportsService: ReportsService) {}
 

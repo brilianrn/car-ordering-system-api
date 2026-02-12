@@ -1,4 +1,5 @@
-import { Controller, Get, Headers, HttpStatus, Query, Res } from '@nestjs/common';
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
+import { Controller, Get, Headers, HttpStatus, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { globalLogger as Logger } from '../../../shared/utils/logger';
 import { response } from '../../../shared/utils/rest-api/response';
@@ -6,6 +7,7 @@ import { QueryAnalyticsDto } from '../dto/query-analytics.dto';
 import { AnalyticsUseCase } from '../usecase/analytics.usecase';
 
 @Controller('analytics')
+@UseGuards(JwtAuthGuard)
 export class AnalyticsController {
   constructor(private readonly useCase: AnalyticsUseCase) {}
 

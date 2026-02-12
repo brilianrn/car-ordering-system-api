@@ -31,7 +31,7 @@ import { VehiclesUsecasePort } from '../ports/usecase.port';
 
 @Controller(ERoutes.VEHICLES)
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.GA, Role.ADMIN)
+@Roles(Role.GA, Role.ADMIN, Role.USER, Role.DRIVER)
 export class VehiclesController implements VehiclesControllerPort {
   constructor(
     @Inject('VehiclesUsecasePort')
@@ -121,6 +121,7 @@ export class VehiclesController implements VehiclesControllerPort {
   }
 
   @Post(vehicleRoute.create)
+  @Roles(Role.GA, Role.ADMIN)
   async create(@Body() createDto: CreateVehicleDto, @Headers('x-user-id') userId: string, @Res() res: Response) {
     try {
       const result = await this.usecase.create(createDto, userId);
@@ -148,6 +149,7 @@ export class VehiclesController implements VehiclesControllerPort {
   }
 
   @Patch(vehicleRoute.update)
+  @Roles(Role.GA, Role.ADMIN)
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateDto: UpdateVehicleDto,
@@ -185,6 +187,7 @@ export class VehiclesController implements VehiclesControllerPort {
   }
 
   @Delete(vehicleRoute.delete)
+  @Roles(Role.GA, Role.ADMIN)
   async remove(@Param('id', ParseIntPipe) id: number, @Headers('x-user-id') userId: string, @Res() res: Response) {
     try {
       const result = await this.usecase.remove(id, userId);
@@ -211,6 +214,7 @@ export class VehiclesController implements VehiclesControllerPort {
   }
 
   @Put(vehicleRoute.restore)
+  @Roles(Role.GA, Role.ADMIN)
   async restore(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
     try {
       const result = await this.usecase.restore(id);

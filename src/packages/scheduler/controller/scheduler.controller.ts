@@ -1,12 +1,26 @@
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
 import { validationMessage } from '@/shared/constants/validation-message';
 import { response } from '@/shared/utils/rest-api/response';
 import { ResponseREST } from '@/shared/utils/rest-api/types';
-import { Body, Controller, Get, Headers, HttpStatus, Inject, Logger, Post, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpStatus,
+  Inject,
+  Logger,
+  Post,
+  Query,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { Response } from 'express';
 import { SyncSummaryDto, SyncTriggerDto } from '../dto';
 import { SchedulerService } from '../usecase/scheduler.usecase';
 
 @Controller('api/v1/scheduler')
+@UseGuards(JwtAuthGuard)
 export class SchedulerController {
   constructor(
     @Inject('SchedulerService')

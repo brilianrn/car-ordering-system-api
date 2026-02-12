@@ -1,12 +1,14 @@
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
 import { ERoutes, paramSetRoute, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
-import { Body, Controller, Get, Headers, HttpStatus, Inject, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpStatus, Inject, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { CreateParamSetDto, PublishParamSetDto, QueryParamSetDto, RollbackParamSetDto } from '../dto';
 import { ParamSetUsecasePort } from '../ports/usecase.port';
 
 @Controller(`${ERoutes.PARAM_SET}${paramSetRoute.base}`)
+@UseGuards(JwtAuthGuard)
 export class ParamSetController {
   constructor(
     @Inject('ParamSetUsecasePort')

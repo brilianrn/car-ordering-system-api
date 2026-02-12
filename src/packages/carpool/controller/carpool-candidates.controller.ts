@@ -1,12 +1,14 @@
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
 import { ERoutes, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
-import { Controller, Get, Headers, HttpStatus, Query, Res } from '@nestjs/common';
+import { Controller, Get, Headers, HttpStatus, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { GetCarpoolCandidatesDto } from '../dto';
 import { CarpoolCandidateMatcherService } from '../services/carpool-candidate-matcher.service';
 
 @Controller(ERoutes.CARPOOL)
+@UseGuards(JwtAuthGuard)
 export class CarpoolCandidatesController {
   constructor(private readonly matcherService: CarpoolCandidateMatcherService) {}
 

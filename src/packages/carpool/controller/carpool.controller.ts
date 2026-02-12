@@ -1,7 +1,20 @@
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
 import { ERoutes, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
-import { Body, Controller, Get, Headers, HttpStatus, Param, ParseIntPipe, Patch, Post, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpStatus,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { Response } from 'express';
 import {
   FindCandidatesPreSubmitDto,
@@ -13,6 +26,7 @@ import {
 import { CarpoolUseCase } from '../usecase/carpool.usecase';
 
 @Controller(`${ERoutes.BOOKINGS}/carpool`)
+@UseGuards(JwtAuthGuard)
 export class CarpoolController {
   constructor(private readonly usecase: CarpoolUseCase) {}
 

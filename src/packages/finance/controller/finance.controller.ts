@@ -1,12 +1,25 @@
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
 import { ERoutes, financeRoute, validationMessage } from '@/shared/constants';
-import { response } from '@/shared/utils/rest-api/response';
 import { globalLogger as Logger } from '@/shared/utils/logger';
-import { Body, Controller, Headers, HttpStatus, Inject, Param, ParseIntPipe, Post, Res } from '@nestjs/common';
+import { response } from '@/shared/utils/rest-api/response';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpStatus,
+  Inject,
+  Param,
+  ParseIntPipe,
+  Post,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { Response } from 'express';
 import { CloseTripDto, VerifyItemDto } from '../dto';
 import { FinanceUsecasePort } from '../ports/usecase.port';
 
 @Controller(`${ERoutes.BOOKINGS}${financeRoute.base}`)
+@UseGuards(JwtAuthGuard)
 export class FinanceController {
   constructor(
     @Inject('FinanceUsecasePort')

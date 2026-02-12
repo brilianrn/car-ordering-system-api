@@ -1,11 +1,13 @@
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
 import { ERoutes } from '@/shared/constants/routes';
 import { response } from '@/shared/utils/rest-api/response';
-import { Controller, Get, HttpStatus, Logger, Param, Query, Res } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Logger, Param, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { GetOrgUnitsDto } from '../dto';
 import { OrgUnitUseCase } from '../usecase';
 
 @Controller(ERoutes.ORG_UNIT)
+@UseGuards(JwtAuthGuard)
 export class OrgUnitController {
   constructor(private readonly usecase: OrgUnitUseCase) {}
 

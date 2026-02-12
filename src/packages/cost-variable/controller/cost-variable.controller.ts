@@ -1,3 +1,4 @@
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
 import { ERoutes, costVariableRoute, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
@@ -14,6 +15,7 @@ import {
   Post,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { CreateCostVariableDto } from '../dto/create-cost-variable.dto';
@@ -23,6 +25,7 @@ import { CostVariableControllerPort } from '../ports/controller.port';
 import { CostVariableUseCase } from '../usecase/cost-variable.usecase';
 
 @Controller(ERoutes.COST_VARIABLE)
+@UseGuards(JwtAuthGuard)
 export class CostVariableController implements CostVariableControllerPort {
   constructor(private readonly costVariableUseCase: CostVariableUseCase) {}
 

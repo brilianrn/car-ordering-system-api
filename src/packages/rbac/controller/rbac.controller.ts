@@ -12,8 +12,12 @@ import {
   Put,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { Response } from 'express';
+
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
+import { RolesGuard } from '@/packages/auth/guards/roles.guard';
 
 import { RBACService } from '../services/rbac.service';
 import { RoleMatrixService } from '../services/role-matrix.service';
@@ -32,6 +36,7 @@ import { ERoutes } from '@/shared/constants/routes';
 import { response } from '@/shared/utils/rest-api/response';
 
 @Controller(ERoutes.RBAC)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class RBACController {
   constructor(
     @Inject('RBACService')

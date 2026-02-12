@@ -1,3 +1,4 @@
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
 import { approvalRoute, ERoutes, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
@@ -13,6 +14,7 @@ import {
   Patch,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApproveBookingDto } from '../dto/approve-booking.dto';
@@ -20,6 +22,7 @@ import { QueryApprovalListDto } from '../dto/query-approval-list.dto';
 import { ApprovalUsecasePort } from '../ports/usecase.port';
 
 @Controller(`${ERoutes.BOOKINGS}${approvalRoute.base}`)
+@UseGuards(JwtAuthGuard)
 export class ApprovalController {
   constructor(
     @Inject('ApprovalUsecasePort')

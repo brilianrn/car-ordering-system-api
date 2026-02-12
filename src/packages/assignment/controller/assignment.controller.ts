@@ -1,12 +1,25 @@
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
 import { assignmentRoute, ERoutes, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
-import { Body, Controller, Headers, HttpStatus, Inject, Param, ParseIntPipe, Post, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpStatus,
+  Inject,
+  Param,
+  ParseIntPipe,
+  Post,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { AssignBookingDto } from '../dto/assign-booking.dto';
 import { AssignmentUsecasePort } from '../ports/usecase.port';
 
 @Controller(`${ERoutes.BOOKINGS}${assignmentRoute.base}`)
+@UseGuards(JwtAuthGuard)
 export class AssignmentController {
   constructor(
     @Inject('AssignmentUsecasePort')

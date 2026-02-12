@@ -28,7 +28,7 @@ import { CategoryUsecasePort } from '../ports/usecase.port';
 
 @Controller(ERoutes.CATEGORY)
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.GA, Role.ADMIN)
+@Roles(Role.GA, Role.ADMIN, Role.USER, Role.DRIVER)
 export class CategoryController implements CategoryControllerPort {
   constructor(
     @Inject('CategoryUsecasePort')
@@ -36,6 +36,7 @@ export class CategoryController implements CategoryControllerPort {
   ) {}
 
   @Post()
+  @Roles(Role.GA, Role.ADMIN)
   async create(@Body() dto: CreateCategoryDto, @Headers('x-user-id') userId: string, @Res() res: Response) {
     try {
       const result = await this.usecase.create(dto, userId);
@@ -127,6 +128,7 @@ export class CategoryController implements CategoryControllerPort {
   }
 
   @Patch(':id')
+  @Roles(Role.GA, Role.ADMIN)
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateCategoryDto,
@@ -166,6 +168,7 @@ export class CategoryController implements CategoryControllerPort {
   }
 
   @Delete(':id')
+  @Roles(Role.GA, Role.ADMIN)
   async delete(@Param('id', ParseIntPipe) id: number, @Headers('x-user-id') userId: string, @Res() res: Response) {
     try {
       const result = await this.usecase.delete(id, userId);

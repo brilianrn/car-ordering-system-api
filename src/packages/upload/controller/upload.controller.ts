@@ -1,13 +1,15 @@
+import { JwtAuthGuard } from '@/packages/auth/guards/jwt-auth.guard';
 import { ERoutes, uploadRoute, validationMessage } from '@/shared/constants';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
-import { Body, Controller, Headers, HttpStatus, Inject, Post, Res } from '@nestjs/common';
+import { Body, Controller, Headers, HttpStatus, Inject, Post, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { UploadDto } from '../dto/upload.dto';
 import { UploadControllerPort } from '../ports/controller.port';
 import { UploadUsecasePort } from '../ports/usecase.port';
 
 @Controller(ERoutes.UPLOAD)
+@UseGuards(JwtAuthGuard)
 export class UploadController implements UploadControllerPort {
   constructor(
     @Inject('UploadUsecasePort')
