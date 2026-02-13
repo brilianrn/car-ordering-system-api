@@ -638,6 +638,7 @@ enum BookingStatus {
   REJECTED
   RETURNED
   MERGED
+  FINISHED
 }
 
 enum ApprovalStatus {

@@ -359,74 +359,69 @@ export class BookingsUseCase implements BookingsUsecasePort {
 
       const where: Prisma.BookingWhereInput = {};
 
-      // Determine the effective requesterId (from parameter or query)
+      // 1. Determine effective requester and initial status
       const effectiveRequesterId = requesterId || query.requesterId;
+      const isTripsView = query.bookingStatus === BookingStatus.ASSIGNED;
 
-      // Build base conditions for requesterId and bookingStatus
-      // IMPORTANT: Draft bookings can only be seen by the requester who created them
-      if (effectiveRequesterId) {
-        // User's own bookings: include DRAFT and non-DRAFT
-        // If bookingStatus filter is provided, apply it within the requesterId scope
-        if (query.bookingStatus) {
-          // Filter by specific status for this requester
-          where.requesterId = effectiveRequesterId;
-          where.bookingStatus = query.bookingStatus;
-        } else {
-          // Show all statuses for this requester (DRAFT + non-DRAFT)
-          where.requesterId = effectiveRequesterId;
-          // No bookingStatus filter - show all statuses
-        }
+      // 2. Build Status Filter
+      if (isTripsView) {
+        // "Trips" view includes ASSIGNED and MERGED (hosts)
+        where.bookingStatus = {
+          in: [BookingStatus.ASSIGNED, BookingStatus.MERGED],
+        };
+      } else if (query.bookingStatus) {
+        where.bookingStatus = query.bookingStatus;
       } else {
-        // No requesterId: exclude DRAFT bookings (only show submitted bookings)
-        // Unless bookingStatus filter is explicitly provided
-        if (query.bookingStatus) {
-          // Apply the status filter
-          where.bookingStatus = query.bookingStatus;
-        }
-      }
-
-      // Filter by service type
-      if (query.serviceType) {
-        where.serviceType = query.serviceType;
-      }
-
-      // Filter by resource mode
-      if (query.resourceMode) {
-        where.resourceMode = query.resourceMode;
-      }
-
-      // Filter by category ID
-      if (query.categoryId) {
-        where.categoryId = query.categoryId;
-      }
-
-      // Filter by booking number (exact match or contains)
-      if (query.bookingNumber) {
-        where.bookingNumber = {
-          contains: query.bookingNumber,
-          mode: 'insensitive', // Case-insensitive search
+        // Default: everything except DRAFT
+        where.bookingStatus = {
+          not: BookingStatus.DRAFT,
         };
       }
 
-      // Filter by start date range (startAt)
-      if (query.startDateFrom || query.startDateTo) {
-        where.startAt = {};
-        if (query.startDateFrom) {
-          where.startAt.gte = new Date(query.startDateFrom);
+      // 3. User-based Filtering (Requester/Driver/Joiner)
+      // IMPORTANT: If status is ASSIGNED (Trips), we only show Host bookings.
+      if (effectiveRequesterId) {
+        if (isTripsView) {
+          // Trips View: Show trips I'm involved in, but only the HOST booking if carpooled.
+          where.OR = [
+            {
+              // Case A: I am the requester AND it's a standalone trip OR I am the host
+              AND: [
+                { requesterId: effectiveRequesterId },
+                {
+                  OR: [{ carpoolGroupId: null }, { hostCarpool: { isNot: null } }],
+                },
+              ],
+            },
+            {
+              assignment: {
+                driverChosen: {
+                  employeeId: effectiveRequesterId,
+                },
+              },
+            },
+            {
+              hostCarpool: {
+                invites: {
+                  some: {
+                    joinerBooking: { requesterId: effectiveRequesterId },
+                  },
+                },
+              },
+            },
+          ];
+        } else {
+          // Regular "My Bookings" or specific status view: show specifically what I requested
+          where.requesterId = effectiveRequesterId;
         }
-        if (query.startDateTo) {
-          where.startAt.lte = new Date(query.startDateTo);
-        }
-      }
-
-      // Filter by submitted date range (submittedAt)
-      if (query.submittedDateFrom || query.submittedDateTo) {
-        where.submittedAt = {};
-        if (query.submittedDateFrom) {
-          where.submittedAt.gte = new Date(query.submittedDateFrom);
-        }
-        if (query.submittedDateTo) {
-          where.submittedAt.lte = new Date(query.submittedDateTo);
+      } else {
+        // GA/Admin view: show all trips matching status.
+        // For "Trips" (ASSIGNED), hide joiners (show only Hosts and Standalones).
+        if (isTripsView) {
+          // Show if:
+          // 1. Not in a carpool (Standalone)
+          // 2. OR Is a Host of a carpool
+          where.OR = [{ carpoolGroupId: null }, { hostCarpool: { isNot: null } }];
         }
       }
 
@@ -459,11 +454,23 @@ export class BookingsUseCase implements BookingsUsecasePort {
         }
       }
 
-      // if (where?.bookingStatus === BookingStatus.ASSIGNED) {
-      //   where.bookingStatus = {
-      //     in: [BookingStatus.ASSIGNED, BookingStatus.MERGED],
-      //   };
-      // }
+      // Expand filters...
+      if (query.serviceType) where.serviceType = query.serviceType;
+      if (query.resourceMode) where.resourceMode = query.resourceMode;
+      if (query.categoryId) where.categoryId = query.categoryId;
+      if (query.bookingNumber) {
+        where.bookingNumber = { contains: query.bookingNumber, mode: 'insensitive' };
+      }
+      if (query.startDateFrom || query.startDateTo) {
+        where.startAt = {};
+        if (query.startDateFrom) where.startAt.gte = new Date(query.startDateFrom);
+        if (query.startDateTo) where.startAt.lte = new Date(query.startDateTo);
+      }
+      if (query.submittedDateFrom || query.submittedDateTo) {
+        where.submittedAt = {};
+        if (query.submittedDateFrom) where.submittedAt.gte = new Date(query.submittedDateFrom);
+        if (query.submittedDateTo) where.submittedAt.lte = new Date(query.submittedDateTo);
+      }
 
       let [data, total] = await Promise.all([
         this.repository.findMany({
@@ -534,84 +541,6 @@ export class BookingsUseCase implements BookingsUsecasePort {
         }),
         this.repository.count(where),
       ]);
-
-      if (where?.bookingStatus === BookingStatus.ASSIGNED) {
-        const carpoolGroups = await this.repository.findManyCarpoolGroup();
-        const hostBookingIds = carpoolGroups.map((group) => group.hostBookingId);
-
-        if (hostBookingIds.length > 0) {
-          const hostBookings = await this.repository.findMany({
-            skip,
-            take: limit,
-            where: {
-              id: { in: hostBookingIds },
-            },
-            include: {
-              category: true,
-              segments: {
-                where: { deletedAt: null },
-                orderBy: { segmentNo: 'asc' },
-                include: {
-                  execution: {
-                    where: { deletedAt: null },
-                    include: {
-                      verification: {
-                        where: { deletedAt: null },
-                        include: {
-                          receiptItems: true,
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-              approvalHeader: {
-                include: {
-                  approverL1: {
-                    select: {
-                      employeeId: true,
-                      fullName: true,
-                      email: true,
-                    },
-                  },
-                },
-              },
-              requester: {
-                select: {
-                  employeeId: true,
-                  fullName: true,
-                  email: true,
-                },
-              },
-              assignment: {
-                include: {
-                  vehicleChosen: {
-                    include: {
-                      images: {
-                        select: {
-                          asset: true,
-                        },
-                      },
-                    },
-                  },
-                  driverChosen: {
-                    include: {
-                      photoAsset: true,
-                      ktpAsset: true,
-                      simAsset: true,
-                    },
-                  },
-                },
-              },
-            },
-          });
-
-          data = data.concat(hostBookings);
-          total = total + hostBookings.length;
-        }
-
-        data = data?.sort((a, b) => b.id - a.id);
-      }
 
       // Transform S3 keys into presigned URLs if any vehicle/asset images are involved
       // Also calculate receipt summary for each booking
@@ -764,6 +693,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
                     gaNote: item.gaNote,
                     createdAt: item.createdAt,
                     createdBy: item.createdBy,
+                    status: item.fundingSource ? 'VERIFIED' : 'IN_REVIEW',
                     ocrSnapshot: item.ocrSnapshot,
                   };
                 }),
@@ -1317,6 +1247,17 @@ export class BookingsUseCase implements BookingsUsecasePort {
       // Transform S3 keys into presigned URLs for vehicle images
       const bookingWithPresignedUrls = await transformBookingWithPresignedUrls(booking, this.s3Service);
 
+      // Manual mapping: Add computed status to receipt items in segments (if any)
+      if (bookingWithPresignedUrls?.segments) {
+        bookingWithPresignedUrls.segments.forEach((segment: any) => {
+          if (segment.execution?.verification?.receiptItems) {
+            segment.execution.verification.receiptItems.forEach((item: any) => {
+              item.status = item.fundingSource ? 'VERIFIED' : 'IN_REVIEW';
+            });
+          }
+        });
+      }
+
       return { data: bookingWithPresignedUrls as IBooking };
     } catch (error) {
       Logger.error(
@@ -1531,6 +1472,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
                     gaNote: item.gaNote,
                     createdAt: item.createdAt,
                     createdBy: item.createdBy,
+                    status: item.fundingSource ? 'VERIFIED' : 'IN_REVIEW',
                   };
                 }),
               );

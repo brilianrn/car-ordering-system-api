@@ -2,13 +2,19 @@ import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { Injectable } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
+import {
+  IFinanceBooking,
+  IFinanceReceiptItem,
+  IFinanceSegmentExecution,
+  IFinanceVerificationHeader,
+} from '../domain/entities';
 import { FinanceRepositoryPort } from '../ports/repository.port';
 
 @Injectable()
 export class FinanceRepository implements FinanceRepositoryPort {
   private readonly db: PrismaClient = clientDb;
 
-  findReceiptItemById = async (itemId: number): Promise<any | null> => {
+  findReceiptItemById = async (itemId: number): Promise<IFinanceReceiptItem | null> => {
     try {
       return await this.db.receiptItem.findUnique({
         where: { id: itemId, deletedAt: null },
@@ -24,7 +30,11 @@ export class FinanceRepository implements FinanceRepositoryPort {
                           requester: true,
                           assignment: {
                             include: {
-                              driverChosen: true,
+                              driverChosen: {
+                                include: {
+                                  employee: true,
+                                },
+                              },
                             },
                           },
                         },
@@ -63,7 +73,7 @@ export class FinanceRepository implements FinanceRepositoryPort {
     }
   };
 
-  findVerificationHeaderByExecutionId = async (executionId: number): Promise<any | null> => {
+  findVerificationHeaderByExecutionId = async (executionId: number): Promise<IFinanceVerificationHeader | null> => {
     try {
       return await this.db.verificationHeader.findUnique({
         where: { segmentExecutionId: executionId, deletedAt: null },
@@ -92,7 +102,7 @@ export class FinanceRepository implements FinanceRepositoryPort {
     }
   };
 
-  findVerificationHeaderById = async (verificationId: number): Promise<any | null> => {
+  findVerificationHeaderById = async (verificationId: number): Promise<IFinanceVerificationHeader | null> => {
     try {
       return await this.db.verificationHeader.findUnique({
         where: { id: verificationId, deletedAt: null },
@@ -140,14 +150,26 @@ export class FinanceRepository implements FinanceRepositoryPort {
     }
   };
 
-  findSegmentExecutionById = async (executionId: number): Promise<any | null> => {
+  findSegmentExecutionById = async (executionId: number): Promise<IFinanceSegmentExecution | null> => {
     try {
       return await this.db.segmentExecution.findUnique({
         where: { id: executionId, deletedAt: null },
         include: {
           segment: {
             include: {
-              booking: true,
+              booking: {
+                include: {
+                  assignment: {
+                    include: {
+                      driverChosen: {
+                        include: {
+                          employee: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
             },
           },
           verification: {
@@ -169,7 +191,7 @@ export class FinanceRepository implements FinanceRepositoryPort {
     }
   };
 
-  findBookingById = async (bookingId: number): Promise<any | null> => {
+  findBookingById = async (bookingId: number): Promise<IFinanceBooking | null> => {
     try {
       return await this.db.booking.findUnique({
         where: { id: bookingId, deletedAt: null },
@@ -218,6 +240,22 @@ export class FinanceRepository implements FinanceRepositoryPort {
     }
   };
 
+  updateManyBookings = async (where: Prisma.BookingWhereInput, data: Prisma.BookingUpdateInput): Promise<void> => {
+    try {
+      await this.db.booking.updateMany({
+        where,
+        data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in updateManyBookings',
+        error instanceof Error ? error.stack : undefined,
+        'FinanceRepository.updateManyBookings',
+      );
+      throw error;
+    }
+  };
+
   updateSegment = async (segmentId: number, data: Prisma.BookingSegmentUpdateInput): Promise<void> => {
     try {
       await this.db.bookingSegment.update({
@@ -234,7 +272,7 @@ export class FinanceRepository implements FinanceRepositoryPort {
     }
   };
 
-  findReceiptItemsByHash = async (dupHash: string, excludeItemId?: number): Promise<any[]> => {
+  findReceiptItemsByHash = async (dupHash: string, excludeItemId?: number): Promise<IFinanceReceiptItem[]> => {
     try {
       return await this.db.receiptItem.findMany({
         where: {

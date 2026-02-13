@@ -3,7 +3,9 @@ import { globalLogger as Logger } from '@/shared/utils/logger';
 import { NotificationService } from '@/shared/utils/notification.service';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { FundingSource, Prisma, VerifyStatus } from '@prisma/client';
+import { BookingStatus, FundingSource, Prisma, RealtimeStatus, VerifyStatus } from '@prisma/client';
+import { IFinanceReceiptItem } from '../domain/entities';
+import { ICloseTripResponse, IVerifyItemResponse } from '../domain/response';
 import { CloseTripDto } from '../dto/close-trip.dto';
 import { VerificationAction, VerifyItemDto } from '../dto/verify-item.dto';
 import { FinanceRepositoryPort } from '../ports/repository.port';
@@ -71,7 +73,7 @@ export class FinanceUseCase implements FinanceUsecasePort {
     amountIdr: number,
     receiptDate: Date,
     excludeItemId?: number,
-  ): Promise<{ isDuplicate: boolean; duplicateItems: any[] }> {
+  ): Promise<{ isDuplicate: boolean; duplicateItems: IFinanceReceiptItem[] }> {
     try {
       // Check by hash first (most reliable)
       const itemsByHash = await this.repository.findReceiptItemsByHash(dupHash, excludeItemId);
@@ -130,7 +132,11 @@ export class FinanceUseCase implements FinanceUsecasePort {
   /**
    * Verify receipt item by GA
    */
-  verifyItem = async (itemId: number, dto: VerifyItemDto, userId: string): Promise<IUsecaseResponse<any>> => {
+  verifyItem = async (
+    itemId: number,
+    dto: VerifyItemDto,
+    userId: string,
+  ): Promise<IUsecaseResponse<IVerifyItemResponse>> => {
     try {
       // 1. Get receipt item with all relations
       const receiptItem = await this.repository.findReceiptItemById(itemId);
@@ -235,9 +241,6 @@ export class FinanceUseCase implements FinanceUsecasePort {
               replenishTicket = await this.generateTicketNumber('REPLEN');
               await this.repository.updateVerificationHeader(verificationHeader.id, {
                 replenishTicket,
-                verifyStatus: VerifyStatus.VERIFIED,
-                verifiedAt: new Date(),
-                verifierId: userId,
                 updatedBy: userId,
               });
             } else {
@@ -255,9 +258,6 @@ export class FinanceUseCase implements FinanceUsecasePort {
             reimburseTicket = await this.generateTicketNumber('REIMB');
             await this.repository.updateVerificationHeader(verificationHeader.id, {
               reimburseTicket,
-              verifyStatus: VerifyStatus.VERIFIED,
-              verifiedAt: new Date(),
-              verifierId: userId,
               updatedBy: userId,
             });
           } else {
@@ -319,7 +319,11 @@ export class FinanceUseCase implements FinanceUsecasePort {
   /**
    * Close trip with validation
    */
-  closeTrip = async (executionId: number, dto: CloseTripDto, userId: string): Promise<IUsecaseResponse<any>> => {
+  closeTrip = async (
+    executionId: number,
+    dto: CloseTripDto,
+    userId: string,
+  ): Promise<IUsecaseResponse<ICloseTripResponse>> => {
     try {
       // 1. Get segment execution with all relations
       const segmentExecution = await this.repository.findSegmentExecutionById(executionId);
@@ -346,7 +350,7 @@ export class FinanceUseCase implements FinanceUsecasePort {
       // 3. Guard: Completeness Check
       // All receipt items must be verified (not rejected, not in review)
       const receiptItems = verificationHeader.receiptItems || [];
-      const unverifiedItems = receiptItems.filter((item: any) => {
+      const unverifiedItems = receiptItems.filter((item: Prisma.ReceiptItemGetPayload<{}>) => {
         // Check if item is rejected (deleted) or has no funding source set
         return item.deletedAt || !item.fundingSource;
       });
@@ -360,11 +364,14 @@ export class FinanceUseCase implements FinanceUsecasePort {
         };
       }
 
-      // Verification status must be VERIFIED
-      if (verificationHeader.verifyStatus !== VerifyStatus.VERIFIED) {
+      // Verification status must be IN_REVIEW or VERIFIED (if already closed once)
+      if (
+        verificationHeader.verifyStatus !== VerifyStatus.IN_REVIEW &&
+        verificationHeader.verifyStatus !== VerifyStatus.VERIFIED
+      ) {
         return {
           error: {
-            message: `Cannot close trip. Verification status is ${verificationHeader.verifyStatus}, must be VERIFIED.`,
+            message: `Cannot close trip. Verification status is ${verificationHeader.verifyStatus}, must be IN_REVIEW or VERIFIED.`,
             code: HttpStatus.BAD_REQUEST,
           },
         };
@@ -383,7 +390,10 @@ export class FinanceUseCase implements FinanceUsecasePort {
       }
 
       // 6. Calculate cost comparison (actual vs estimated)
-      const actualCost = receiptItems.reduce((sum: number, item: any) => sum + item.amountIdr, 0);
+      const actualCost = receiptItems.reduce(
+        (sum: number, item: Prisma.ReceiptItemGetPayload<{}>) => sum + item.amountIdr,
+        0,
+      );
 
       // TODO: Get estimated cost from Master Variabel Biaya (FR-SET-008)
       // This should calculate estimated cost based on:
@@ -394,47 +404,85 @@ export class FinanceUseCase implements FinanceUsecasePort {
       const estimatedCost = 0; // Placeholder - to be implemented with cost-variable integration
 
       // Calculate cost breakdown by category
-      const costByCategory = receiptItems.reduce((acc: any, item: any) => {
-        const category = item.category;
-        if (!acc[category]) {
-          acc[category] = { count: 0, totalAmount: 0 };
-        }
-        acc[category].count += 1;
-        acc[category].totalAmount += item.amountIdr;
-        return acc;
-      }, {});
+      const costByCategory = receiptItems.reduce(
+        (acc: Record<string, { count: number; totalAmount: number }>, item: Prisma.ReceiptItemGetPayload<{}>) => {
+          const category = item.category;
+          if (!acc[category]) {
+            acc[category] = { count: 0, totalAmount: 0 };
+          }
+          acc[category].count += 1;
+          acc[category].totalAmount += item.amountIdr;
+          return acc;
+        },
+        {},
+      );
 
       // 7. Generate tickets if needed
       let reimburseTicket = verificationHeader.reimburseTicket;
       let replenishTicket = verificationHeader.replenishTicket;
 
       // Check if Mode-B items exist but no reimburse ticket
-      const hasModeBItems = receiptItems.some((item: any) => item.fundingSource === FundingSource.MODE_B);
+      const hasModeBItems = receiptItems.some(
+        (item: Prisma.ReceiptItemGetPayload<{}>) => item.fundingSource === FundingSource.MODE_B,
+      );
       if (hasModeBItems && !reimburseTicket) {
         reimburseTicket = await this.generateTicketNumber('REIMB');
       }
 
       // Check if Driver Cash items exist but no replenish ticket
-      const hasDriverCashItems = receiptItems.some((item: any) => item.fundingSource === FundingSource.DRIVER_CASH);
+      const hasDriverCashItems = receiptItems.some((item) => item.fundingSource === FundingSource.DRIVER_CASH);
       if (hasDriverCashItems && !replenishTicket) {
         replenishTicket = await this.generateTicketNumber('REPLEN');
       }
 
-      // Update verification header with tickets
-      if (reimburseTicket || replenishTicket) {
-        await this.repository.updateVerificationHeader(verificationHeader.id, {
-          reimburseTicket: reimburseTicket || verificationHeader.reimburseTicket,
-          replenishTicket: replenishTicket || verificationHeader.replenishTicket,
-          updatedBy: userId,
-        });
-      }
+      // Update verification header with tickets and final status
+      await this.repository.updateVerificationHeader(verificationHeader.id, {
+        reimburseTicket: reimburseTicket || verificationHeader.reimburseTicket,
+        replenishTicket: replenishTicket || verificationHeader.replenishTicket,
+        verifyStatus: VerifyStatus.VERIFIED,
+        verifiedAt: new Date(),
+        verifierId: userId,
+        updatedBy: userId,
+      });
 
       // 8. Update booking and segment status to Finished/Closed
-      // Note: BookingStatus enum doesn't have FINISHED, so we'll use a different approach
-      // The booking status should remain as is, but we mark the trip as closed via verification status
       const booking = segmentExecution.segment?.booking;
-      // We don't change booking status as it might not have FINISHED enum
-      // Instead, we rely on verification status being VERIFIED to indicate trip is closed
+      if (booking) {
+        // Update Host Booking
+        await this.repository.updateBooking(booking.id, {
+          bookingStatus: BookingStatus.FINISHED,
+          updatedBy: userId,
+        });
+
+        // Update Driver Status to Idle
+        const driverId = booking.assignment?.driverChosenId;
+        if (driverId) {
+          await this.repository.updateDriver(driverId, {
+            realtimeStatus: RealtimeStatus.Idle,
+            updatedBy: userId,
+          });
+          Logger.info(`Driver ${driverId} status updated to Idle`, 'FinanceUseCase.closeTrip');
+        }
+
+        // Update Carpool Joiner Bookings (if any)
+        if (booking.carpoolGroupId) {
+          await this.repository.updateManyBookings(
+            {
+              carpoolGroupId: booking.carpoolGroupId,
+              bookingStatus: { not: BookingStatus.FINISHED },
+              deletedAt: null,
+            },
+            {
+              bookingStatus: BookingStatus.FINISHED,
+              updatedBy: userId,
+            },
+          );
+          Logger.info(
+            `Carpool Group ${booking.carpoolGroupId} joiner bookings marked as FINISHED`,
+            'FinanceUseCase.closeTrip',
+          );
+        }
+      }
 
       // Update segment status if needed
       // Note: Segment status might need to be updated separately if there's a status field
@@ -478,9 +526,10 @@ export class FinanceUseCase implements FinanceUsecasePort {
           }
 
           // Notify driver
-          if (driver?.email) {
+          const driverEmail = driver?.employee?.email;
+          if (driverEmail) {
             await this.notificationService.sendEmail({
-              to: driver.email,
+              to: driverEmail,
               subject: 'Trip Closed',
               body: `Trip ${booking.bookingNumber} has been closed and verified.`,
             });

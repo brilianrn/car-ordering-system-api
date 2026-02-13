@@ -169,12 +169,12 @@ export class AuthUseCase implements AuthUsecasePort {
         if (!employee) {
           // If employee doesn't exist, create a placeholder one
           // This allows registration before employee sync is complete
-          Logger.info(`Creating placeholder employee for NIK: ${dto.nik}`, 'AuthUseCase.register');
+          const nameFromEmail = dto.email.split('@')[0];
           try {
             employee = await this.repository.createPlaceholderEmployee({
               employeeId: dto.nik,
               email: dto.email,
-              fullName: dto.fullName || 'New User', // Fallback name
+              fullName: dto.fullName || nameFromEmail, // Adapt from email if not provided
             });
           } catch (createError) {
             Logger.error(

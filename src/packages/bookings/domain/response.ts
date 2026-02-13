@@ -37,6 +37,7 @@ export interface IReceiptItem {
   gaNote: string | null;
   createdAt: Date;
   createdBy: string;
+  status?: string; // VERIFIED, IN_REVIEW, REJECTED
   ocrSnapshot?: any; // Optional, for audit/detail
 }
 
