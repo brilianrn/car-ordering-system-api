@@ -1,4 +1,5 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsArray, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class SearchUserDto {
   @IsOptional()
@@ -20,4 +21,15 @@ export class SearchUserDto {
   @IsString()
   @MinLength(1)
   fullName?: string; // Search by full name
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      return value.split(',').map((v) => v.trim());
+    }
+    return value;
+  })
+  @IsArray()
+  @IsString({ each: true })
+  roles?: string[]; // Filter by user roles (e.g., LEADER, GA, ADMIN)
 }

@@ -155,6 +155,7 @@ export class AuthRepository implements AuthRepositoryPort {
     employeeId?: string;
     email?: string;
     fullName?: string;
+    roles?: string[];
     limit?: number;
   }): Promise<
     Array<{
@@ -168,7 +169,7 @@ export class AuthRepository implements AuthRepositoryPort {
       } | null;
     }>
   > {
-    const { query, employeeId, email, fullName, limit = 50 } = params;
+    const { query, employeeId, email, fullName, roles, limit = 50 } = params;
 
     const where: any = {
       deletedAt: null,
@@ -191,6 +192,13 @@ export class AuthRepository implements AuthRepositoryPort {
       if (fullName) {
         where.fullName = { contains: fullName, mode: 'insensitive' };
       }
+    }
+
+    // Add roles filter if provided
+    if (params.roles && params.roles.length > 0) {
+      where.effectiveRoles = {
+        hasSome: params.roles as Role[],
+      };
     }
 
     return this.db.employee.findMany({

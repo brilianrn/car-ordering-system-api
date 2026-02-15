@@ -25,6 +25,9 @@ export class ApprovalsUseCase implements ApprovalsUsecasePort {
         where: { id: decoded.bookingId },
         include: {
           requester: true,
+          segments: {
+            where: { segmentNo: 1 },
+          },
         },
       });
 
@@ -59,7 +62,7 @@ export class ApprovalsUseCase implements ApprovalsUsecasePort {
           bookingId: booking.id,
           bookingNumber: booking.bookingNumber,
           requesterName: booking.requester?.fullName || 'Unknown',
-          destination: 'N/A', // No destination field in schema, using placeholder
+          destination: booking.segments[0]?.to || 'N/A',
           date: format(new Date(booking.startAt), 'dd MMM yyyy HH:mm'),
           purpose: booking.purpose,
           action: decoded.action,

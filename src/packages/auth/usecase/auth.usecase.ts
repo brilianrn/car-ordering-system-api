@@ -284,6 +284,7 @@ export class AuthUseCase implements AuthUsecasePort {
     employeeId?: string;
     email?: string;
     fullName?: string;
+    roles?: string[];
     limit?: number;
   }): Promise<
     IUsecaseResponse<

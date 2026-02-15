@@ -627,6 +627,15 @@ export class BookingsRepository implements BookingsRepositoryPort {
 
   findEmployeeRoles = async (employeeId: string): Promise<string[]> => {
     try {
+      // 1. Get employee for effectiveRoles (sync-based roles)
+      const employee = await this.db.employee.findUnique({
+        where: { employeeId },
+        select: { effectiveRoles: true },
+      });
+
+      const effectiveRoles = employee?.effectiveRoles || [];
+
+      // 2. Get roles from userRole table (manually assigned roles)
       const userRoles = await this.db.userRole.findMany({
         where: {
           employeeId,
@@ -635,7 +644,10 @@ export class BookingsRepository implements BookingsRepositoryPort {
         },
         include: { role: true },
       });
-      return userRoles.map((ur) => ur.role.name);
+      const mappingRoles = userRoles.map((ur) => ur.role.name);
+
+      // 3. Combine and remove duplicates
+      return [...new Set([...effectiveRoles, ...mappingRoles])];
     } catch (error) {
       Logger.error(
         error instanceof Error ? error.message : 'Error in findEmployeeRoles',

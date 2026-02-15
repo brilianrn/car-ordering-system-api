@@ -1,10 +1,12 @@
 import { GeospatialService } from '@/shared/services/geospatial.service';
 import { clientDb, S3Service } from '@/shared/utils';
+import { generateActionToken } from '@/shared/utils/action-token.util';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { NotificationService } from '@/shared/utils/notification.service';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { BookingStatus, Prisma, Role, ServiceType } from '@prisma/client';
+import { format } from 'date-fns';
 import { BASE_BOOKING_INCLUDE, IBookingWithRelations } from '../domain/entities';
 import { transformBookingWithPresignedUrls } from '../domain/helpers/presigned-url.helper';
 import {
@@ -299,13 +301,37 @@ export class BookingsUseCase implements BookingsUsecasePort {
       // ============================================
       if (!isDraft && approver) {
         try {
-          await this.notificationService.sendBookingSubmissionNotifications(
-            approver.email || '',
-            approver.employeeId,
-            bookingNumber,
-            requester.fullName,
-            createDto.purpose,
-          );
+          // 1. Generate L1 Action Tokens
+          const approveToken = generateActionToken({
+            bookingId: booking.id,
+            approverId: approver.employeeId,
+            action: 'APPROVE',
+            level: 'L1',
+          });
+
+          const rejectToken = generateActionToken({
+            bookingId: booking.id,
+            approverId: approver.employeeId,
+            action: 'REJECT',
+            level: 'L1',
+          });
+
+          // 2. Send multi-channel notification (Email + Push)
+          await this.notificationService.sendApprovalNotification({
+            approverId: approver.employeeId,
+            approverName: approver.fullName,
+            approverEmail: approver.email || '',
+            bookingDetails: {
+              bookingNumber,
+              requesterName: requester.fullName,
+              destination: createDto.segment.to,
+              date: format(new Date(createDto.startAt), 'dd MMM yyyy HH:mm'),
+              purpose: createDto.purpose,
+            },
+            approveToken,
+            rejectToken,
+            channels: ['email', 'push'],
+          });
         } catch (notificationError) {
           // Log error but don't fail the booking creation
           Logger.error(
@@ -1009,17 +1035,52 @@ export class BookingsUseCase implements BookingsUsecasePort {
             createdBy: userId,
           });
 
-          // Send notification to supervisor
+          // Send multi-channel actionable notification
           try {
             const bookingNumber = existingBooking.bookingNumber;
             const purpose = typeof updateData.purpose === 'string' ? updateData.purpose : existingBooking.purpose || '';
-            await this.notificationService.sendBookingSubmissionNotifications(
-              approver.email || '',
-              approver.employeeId,
-              bookingNumber,
-              requester.fullName,
-              purpose,
-            );
+
+            // Get destination and date from first segment
+            const firstSegment = updateDto.segment ? updateDto.segment : (existingBooking as any).segments?.[0];
+
+            const destination = firstSegment?.to || (firstSegment as any)?.destination || 'N/A';
+            const date = updateDto.startAt
+              ? format(new Date(updateDto.startAt), 'dd MMM yyyy HH:mm')
+              : firstSegment?.startAt
+                ? format(new Date(firstSegment.startAt), 'dd MMM yyyy HH:mm')
+                : format(new Date(existingBooking.startAt), 'dd MMM yyyy HH:mm');
+
+            // 1. Generate L1 Action Tokens
+            const approveToken = generateActionToken({
+              bookingId: id,
+              approverId: approver.employeeId,
+              action: 'APPROVE',
+              level: 'L1',
+            });
+
+            const rejectToken = generateActionToken({
+              bookingId: id,
+              approverId: approver.employeeId,
+              action: 'REJECT',
+              level: 'L1',
+            });
+
+            // 2. Send multi-channel notification (Email + Push)
+            await this.notificationService.sendApprovalNotification({
+              approverId: approver.employeeId,
+              approverName: approver.fullName,
+              approverEmail: approver.email || '',
+              bookingDetails: {
+                bookingNumber,
+                requesterName: requester.fullName,
+                destination,
+                date,
+                purpose,
+              },
+              approveToken,
+              rejectToken,
+              channels: ['email', 'push'],
+            });
           } catch (notificationError) {
             // Log error but don't fail the booking update
             Logger.error(

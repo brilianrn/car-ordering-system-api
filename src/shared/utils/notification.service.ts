@@ -88,6 +88,7 @@ export class NotificationService {
 
   /**
    * Send both email and push notification for booking submission
+   * @deprecated Use sendApprovalNotification instead for actionable notifications with buttons
    */
   async sendBookingSubmissionNotifications(
     approverEmail: string,

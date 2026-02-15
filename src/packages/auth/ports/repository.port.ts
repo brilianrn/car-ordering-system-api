@@ -33,6 +33,7 @@ export interface AuthRepositoryPort {
     employeeId?: string;
     email?: string;
     fullName?: string;
+    roles?: string[];
     limit?: number;
   }): Promise<
     Array<{

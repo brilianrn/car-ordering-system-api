@@ -2,7 +2,7 @@ import { clientDb } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { Injectable } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Role } from '@prisma/client';
 import { IEmployeeSearchResponse } from '../domain/response';
 import { EmployeesUsecasePort } from '../ports/usecase.port';
 
@@ -10,7 +10,7 @@ import { EmployeesUsecasePort } from '../ports/usecase.port';
 export class EmployeesUseCase implements EmployeesUsecasePort {
   private readonly db: PrismaClient = clientDb;
 
-  search = async (query: string): Promise<IUsecaseResponse<IEmployeeSearchResponse[]>> => {
+  search = async (query: string, roles?: string[]): Promise<IUsecaseResponse<IEmployeeSearchResponse[]>> => {
     try {
       if (!query || query.length < 3) {
         return { data: [] };
@@ -31,6 +31,15 @@ export class EmployeesUseCase implements EmployeesUsecasePort {
             {
               isActive: true,
             },
+            ...(roles && roles.length > 0
+              ? [
+                  {
+                    effectiveRoles: {
+                      hasSome: roles as Role[],
+                    },
+                  },
+                ]
+              : []),
           ],
         },
         select: {

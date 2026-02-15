@@ -15,9 +15,10 @@ export class EmployeesController implements EmployeesControllerPort {
   ) {}
 
   @Get('/search')
-  async search(@Query('q') q = '', @Res() res: Response) {
+  async search(@Query('q') q = '', @Res() res: Response, @Query('roles') rolesStr?: string) {
     try {
-      const result = await this.usecase.search(q);
+      const roles = rolesStr ? rolesStr.split(',') : undefined;
+      const result = await this.usecase.search(q, roles);
 
       if (result?.error) {
         return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
