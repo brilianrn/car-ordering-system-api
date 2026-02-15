@@ -167,4 +167,44 @@ export class AuthController {
       });
     }
   }
+
+  @Post(authRoute.socialLogin)
+  async socialLogin(@Body() dto: { token: string }, @Res() res: Response) {
+    try {
+      if (!dto.token) {
+        return response[HttpStatus.BAD_REQUEST](res, {
+          message: 'Social token is required',
+        });
+      }
+
+      // Re-use SSO logic or implement specific social auth logic if different
+      // Assuming socialAuth uses the same flow as ssoLogin for now, or usecase.socialAuth if it existed
+      // Based on previous analysis, we used ssoLogin for token based auth, let's stick to that or create a wrapper
+      // Wait, AuthUseCase didn't have socialAuth, but it has ssoLogin.
+      // Let's use ssoLogin as the implementation for now since it takes a token.
+
+      const result = await this.usecase.ssoLogin(dto.token);
+
+      if (result?.error) {
+        const statusCode = result.error.code || HttpStatus.BAD_REQUEST;
+        return response[statusCode](res, {
+          message: result.error.message,
+        });
+      }
+
+      return response[HttpStatus.OK](res, {
+        message: 'Social login successful',
+        data: result.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Unknown error in socialLogin controller',
+        error instanceof Error ? error.stack : undefined,
+        'AuthController.socialLogin',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: 'An error occurred during social login',
+      });
+    }
+  }
 }

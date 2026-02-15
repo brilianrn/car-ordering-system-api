@@ -582,4 +582,67 @@ export class BookingsRepository implements BookingsRepositoryPort {
       throw error;
     }
   };
+
+  findFirstEmployeeByRole = async (
+    roleName: string,
+  ): Promise<{ employeeId: string; fullName: string; email: string | null } | null> => {
+    try {
+      // Find user role where role name matches
+      const userRole = await this.db.userRole.findFirst({
+        where: {
+          role: {
+            name: roleName,
+          },
+          isActive: true,
+          employee: {
+            isActive: true,
+            deletedAt: null,
+          },
+        },
+        include: {
+          employee: {
+            select: {
+              employeeId: true,
+              fullName: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      if (userRole && userRole.employee) {
+        return userRole.employee;
+      }
+
+      return null;
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findFirstEmployeeByRole',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsRepository.findFirstEmployeeByRole',
+      );
+      throw error;
+    }
+  };
+
+  findEmployeeRoles = async (employeeId: string): Promise<string[]> => {
+    try {
+      const userRoles = await this.db.userRole.findMany({
+        where: {
+          employeeId,
+          isActive: true,
+          role: { isActive: true },
+        },
+        include: { role: true },
+      });
+      return userRoles.map((ur) => ur.role.name);
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in findEmployeeRoles',
+        error instanceof Error ? error.stack : undefined,
+        'BookingsRepository.findEmployeeRoles',
+      );
+      throw error;
+    }
+  };
 }

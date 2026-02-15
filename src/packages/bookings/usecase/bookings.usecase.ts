@@ -3,8 +3,8 @@ import { clientDb, S3Service } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { NotificationService } from '@/shared/utils/notification.service';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { BookingStatus, Prisma, ServiceType } from '@prisma/client';
+import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { BookingStatus, Prisma, Role, ServiceType } from '@prisma/client';
 import { BASE_BOOKING_INCLUDE, IBookingWithRelations } from '../domain/entities';
 import { transformBookingWithPresignedUrls } from '../domain/helpers/presigned-url.helper';
 import {
@@ -67,24 +67,15 @@ export class BookingsUseCase implements BookingsUsecasePort {
       // Determine if this is a draft or submit
       const isDraft = createDto.isDraft ?? false;
 
-      // 3. Validate supervisor exists ONLY for submit (not required for draft)
+      let approver: { employeeId: string; email: string; fullName: string } | null = null;
       if (!isDraft) {
-        if (!requester.approverL1Id) {
+        try {
+          approver = await this.resolveApproverL1(requesterId, createDto.manualApproverId);
+        } catch (error) {
           return {
             error: {
-              message: `Supervisor (approverL1Id) not found for employee ${requesterId}. Required for submitting booking.`,
-              code: HttpStatus.BAD_REQUEST,
-            },
-          };
-        }
-
-        // 4. Validate supervisor employee exists in database
-        const supervisor = await this.repository.findEmployeeByEmployeeId(requester.approverL1Id);
-        if (!supervisor) {
-          return {
-            error: {
-              message: `Supervisor with ID ${requester.approverL1Id} not found in Employee table`,
-              code: HttpStatus.NOT_FOUND,
+              message: error instanceof Error ? error.message : 'Failed to resolve approver',
+              code: error instanceof HttpException ? error.getStatus() : HttpStatus.BAD_REQUEST,
             },
           };
         }
@@ -276,12 +267,12 @@ export class BookingsUseCase implements BookingsUsecasePort {
       }
 
       // Prepare approval header data (only for submit, not for draft)
-      // approverL1Id is taken from requester.approverL1Id field
+      // approverL1Id is taken from resolved approver
       let approvalHeaderData: Omit<Prisma.ApprovalHeaderCreateInput, 'booking'> | undefined;
-      if (!isDraft && requester.approverL1Id) {
+      if (!isDraft && approver) {
         approvalHeaderData = {
           approverL1: {
-            connect: { employeeId: requester.approverL1Id }, // From requester's approverL1Id field
+            connect: { employeeId: approver.employeeId },
           },
           assignedAt, // Current date/time
           slaDueAt, // assignedAt + 24 hours (exactly 24 * 60 * 60 * 1000 milliseconds)
@@ -306,18 +297,15 @@ export class BookingsUseCase implements BookingsUsecasePort {
       // Send email and push notification to approver
       // Notification failure should not block booking creation
       // ============================================
-      if (!isDraft && requester.approverL1Id) {
+      if (!isDraft && approver) {
         try {
-          const supervisor = await this.repository.findEmployeeByEmployeeId(requester.approverL1Id);
-          if (supervisor) {
-            await this.notificationService.sendBookingSubmissionNotifications(
-              supervisor.email || '',
-              supervisor.employeeId,
-              bookingNumber,
-              requester.fullName,
-              createDto.purpose,
-            );
-          }
+          await this.notificationService.sendBookingSubmissionNotifications(
+            approver.email || '',
+            approver.employeeId,
+            bookingNumber,
+            requester.fullName,
+            createDto.purpose,
+          );
         } catch (notificationError) {
           // Log error but don't fail the booking creation
           Logger.error(
@@ -812,13 +800,15 @@ export class BookingsUseCase implements BookingsUsecasePort {
         };
       }
 
-      // 4. Validate supervisor exists if submitting (isDraft: false)
+      // 4. Resolve approver Logic if submitting
       let requester: {
         employeeId: string;
         approverL1Id: string | null;
         fullName: string;
         email: string | null;
       } | null = null;
+      let approver: { employeeId: string; email: string; fullName: string } | null = null;
+
       if (shouldSubmit) {
         requester = await this.repository.findEmployeeByEmployeeId(requesterId);
         if (!requester) {
@@ -830,22 +820,13 @@ export class BookingsUseCase implements BookingsUsecasePort {
           };
         }
 
-        if (!requester.approverL1Id) {
+        try {
+          approver = await this.resolveApproverL1(requesterId, updateDto.manualApproverId);
+        } catch (error) {
           return {
             error: {
-              message: `Supervisor (approverL1Id) not found for employee ${requesterId}. Required for submitting booking.`,
-              code: HttpStatus.BAD_REQUEST,
-            },
-          };
-        }
-
-        // Validate supervisor employee exists in database
-        const supervisor = await this.repository.findEmployeeByEmployeeId(requester.approverL1Id);
-        if (!supervisor) {
-          return {
-            error: {
-              message: `Supervisor with ID ${requester.approverL1Id} not found in Employee table`,
-              code: HttpStatus.NOT_FOUND,
+              message: error instanceof Error ? error.message : 'Failed to resolve approver',
+              code: error instanceof HttpException ? error.getStatus() : HttpStatus.BAD_REQUEST,
             },
           };
         }
@@ -1009,7 +990,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
       await this.repository.update(id, updateDataWithVehicle as Prisma.BookingUpdateInput);
 
       // 9. Create approval header if submitting (isDraft: false)
-      if (shouldSubmit && requester && requester.approverL1Id) {
+      if (shouldSubmit && requester && approver) {
         // Check if approval header already exists
         const existingApprovalHeader = await this.repository.findApprovalHeaderByBookingId(id);
 
@@ -1021,7 +1002,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
           // Create approval header
           await this.repository.createApprovalHeader({
             booking: { connect: { id } },
-            approverL1: { connect: { employeeId: requester.approverL1Id } },
+            approverL1: { connect: { employeeId: approver.employeeId } },
             assignedAt,
             slaDueAt,
             decisionL1: null, // PENDING status
@@ -1030,21 +1011,15 @@ export class BookingsUseCase implements BookingsUsecasePort {
 
           // Send notification to supervisor
           try {
-            if (requester && requester.approverL1Id) {
-              const supervisor = await this.repository.findEmployeeByEmployeeId(requester.approverL1Id);
-              if (supervisor) {
-                const bookingNumber = existingBooking.bookingNumber;
-                const purpose =
-                  typeof updateData.purpose === 'string' ? updateData.purpose : existingBooking.purpose || '';
-                await this.notificationService.sendBookingSubmissionNotifications(
-                  supervisor.email || '',
-                  supervisor.employeeId,
-                  bookingNumber,
-                  requester.fullName,
-                  purpose,
-                );
-              }
-            }
+            const bookingNumber = existingBooking.bookingNumber;
+            const purpose = typeof updateData.purpose === 'string' ? updateData.purpose : existingBooking.purpose || '';
+            await this.notificationService.sendBookingSubmissionNotifications(
+              approver.email || '',
+              approver.employeeId,
+              bookingNumber,
+              requester.fullName,
+              purpose,
+            );
           } catch (notificationError) {
             // Log error but don't fail the booking update
             Logger.error(
@@ -1512,4 +1487,82 @@ export class BookingsUseCase implements BookingsUsecasePort {
       };
     }
   };
+  /**
+   * Resolve Approver L1 based on priority:
+   * 1. Manual Approver (if provided) - override
+   * 2. HRIS Supervisor (approverL1Id) - standard
+   * 3. GA Assignee - fallback
+   */
+  private async resolveApproverL1(
+    requesterId: string,
+    manualApproverId?: string,
+  ): Promise<{ employeeId: string; email: string; fullName: string }> {
+    // 1. Manual Approver (Highest Priority)
+    if (manualApproverId) {
+      const approver = await this.repository.findEmployeeById(manualApproverId);
+      if (!approver) {
+        throw new HttpException(`Manual approver with ID ${manualApproverId} not found`, HttpStatus.BAD_REQUEST);
+      }
+
+      // Check role (LEADER or GA)
+      const roles = await this.repository.findEmployeeRoles(manualApproverId);
+      const hasValidRole = roles.some((role) => ([Role.LEADER, Role.GA, Role.ADMIN] as string[]).includes(role));
+
+      if (!hasValidRole) {
+        throw new HttpException(
+          `Selected approver ${approver.fullName} does not have required role (LEADER/GA)`,
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Return approver details
+      return {
+        employeeId: approver.employeeId,
+        email: approver.email || '',
+        fullName: approver.fullName,
+      };
+    }
+
+    // 2. HRIS Supervisor (Medium Priority)
+    const requester = await this.repository.findEmployeeById(requesterId);
+    if (!requester) {
+      throw new HttpException(`Employee with ID ${requesterId} not found`, HttpStatus.NOT_FOUND);
+    }
+
+    if (requester.approverL1Id) {
+      const supervisor = await this.repository.findEmployeeById(requester.approverL1Id);
+      if (supervisor) {
+        return {
+          employeeId: supervisor.employeeId,
+          email: supervisor.email || '',
+          fullName: supervisor.fullName,
+        };
+      }
+      // If supervisor ID exists but not found in DB, log warning and fall through to GA
+      Logger.warn(
+        `Supervisor ${requester.approverL1Id} for ${requesterId} not found in DB. Falling back to GA.`,
+        'BookingsUseCase.resolveApproverL1',
+      );
+    }
+
+    // 3. GA Fallback (Lowest Priority)
+    const gaAssignee = await this.repository.findFirstEmployeeByRole(Role.GA);
+    if (gaAssignee) {
+      Logger.info(
+        `Falling back to GA assignee ${gaAssignee.fullName} for requester ${requesterId}`,
+        'BookingsUseCase.resolveApproverL1',
+      );
+      return {
+        employeeId: gaAssignee.employeeId,
+        email: gaAssignee.email || '',
+        fullName: gaAssignee.fullName,
+      };
+    }
+
+    // If all fails
+    throw new HttpException(
+      'No valid approver found. Please select a manual approver or contact administrator.',
+      HttpStatus.BAD_REQUEST,
+    );
+  }
 }

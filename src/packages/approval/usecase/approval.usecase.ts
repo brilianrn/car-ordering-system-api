@@ -1,14 +1,14 @@
-import { NotificationService } from '@/shared/utils/notification.service';
+import { IBookingWithRelations } from '@/packages/bookings/domain/entities';
+import { transformBookingWithPresignedUrls } from '@/packages/bookings/domain/helpers/presigned-url.helper';
+import { IBooking, IBookingListResponse } from '@/packages/bookings/domain/response';
+import { S3Service } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
+import { NotificationService } from '@/shared/utils/notification.service';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ApprovalStatus, BookingStatus, Prisma } from '@prisma/client';
-import { IBooking, IBookingListResponse } from '@/packages/bookings/domain/response';
-import { transformBookingWithPresignedUrls } from '@/packages/bookings/domain/helpers/presigned-url.helper';
-import { IBookingWithRelations } from '@/packages/bookings/domain/entities';
-import { S3Service } from '@/shared/utils';
 import { ApproveBookingDto } from '../dto/approve-booking.dto';
-import { QueryApprovalListDto, ApprovalLevel } from '../dto/query-approval-list.dto';
+import { ApprovalLevel, QueryApprovalListDto } from '../dto/query-approval-list.dto';
 import { ApprovalRepositoryPort } from '../ports/repository.port';
 import { ApprovalUsecasePort } from '../ports/usecase.port';
 
@@ -21,8 +21,9 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
     private readonly notificationService: NotificationService,
   ) {}
 
-  approveBooking = async (id: number, dto: ApproveBookingDto, userId: string): Promise<IUsecaseResponse<IBooking>> => {
+  approveBooking = async (id: number, dto: ApproveBookingDto, user: any): Promise<IUsecaseResponse<IBooking>> => {
     try {
+      const { employeeId } = user;
       // 1. Get booking with approval header
       const booking = await this.repository.findBookingById(id, {
         approvalHeader: {
@@ -84,7 +85,7 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
         decisionL1: dto.decision as ApprovalStatus,
         decisionTimeL1: decisionTime,
         commentL1: dto.comment || null,
-        updatedBy: userId,
+        updatedBy: employeeId,
       });
 
       // 5. Update booking status based on decision
@@ -106,7 +107,7 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
 
       await this.repository.updateBooking(id, {
         bookingStatus: newStatus,
-        updatedBy: userId,
+        updatedBy: employeeId,
       });
 
       // 6. Send notification
@@ -168,9 +169,24 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
 
   findApprovalList = async (
     query: QueryApprovalListDto,
-    userId: string,
+    user: any,
   ): Promise<IUsecaseResponse<IBookingListResponse>> => {
     try {
+      const { employeeId, roles = [] } = user;
+      const isLeader = roles.includes('LEADER');
+      const isGA = roles.includes('GA');
+      const isAdmin = roles.includes('ADMIN');
+
+      // Safety Check: If not Leader/GA/Admin, return empty list
+      if (!isLeader && !isGA && !isAdmin) {
+        return {
+          data: {
+            data: [],
+            meta: { page: query.page ?? 1, limit: query.limit ?? 10, total: 0 },
+          },
+        };
+      }
+
       // Set default values if not provided
       const page = query.page ?? 1;
       const limit = query.limit ?? 10;
@@ -199,8 +215,11 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
           decisionL1: null, // PENDING approval
         };
 
-        // Filter by approver L1 ID if provided
-        if (approverId) {
+        // NEW: FORCE Filter by currentUserEmployeeId if user is LEADER
+        if (isLeader) {
+          approvalHeaderConditions.approverL1Id = employeeId;
+        } else if (approverId) {
+          // If GA/Admin provides an approverId in query, use it
           approvalHeaderConditions.approverL1Id = approverId;
         }
 
@@ -211,16 +230,22 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
       }
 
       // L2 Approval: Booking dengan status APPROVED_L1 yang belum memiliki Assignment
+      // GA and Admin can handle L2 (GA Assignment)
       if (level === ApprovalLevel.ALL || level === ApprovalLevel.L2) {
-        orConditions.push({
-          bookingStatus: BookingStatus.APPROVED_L1,
-          assignment: null, // Belum ada assignment
-        });
+        if (isAdmin || isGA) {
+          orConditions.push({
+            bookingStatus: BookingStatus.APPROVED_L1,
+            assignment: null, // Belum ada assignment
+          });
+        }
       }
 
       // Apply OR conditions
       if (orConditions.length > 0) {
         where.OR = orConditions;
+      } else {
+        // If no OR conditions (e.g. Leader only looking for L2), ensure no data returned
+        where.id = -1;
       }
 
       // Search filter (booking number or purpose)

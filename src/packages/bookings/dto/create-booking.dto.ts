@@ -96,4 +96,8 @@ export class CreateBookingDto {
   @IsBoolean()
   @Type(() => Boolean)
   isDraft?: boolean; // Default: false (submit). If true, booking will be saved as DRAFT without approval header
+
+  @IsOptional()
+  @IsString()
+  manualApproverId?: string; // Optional: Manually selected approver ID (overrides HRIS)
 }

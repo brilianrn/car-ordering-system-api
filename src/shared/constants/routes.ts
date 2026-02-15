@@ -26,6 +26,7 @@ export const authRoute = {
   registerFullForm: '/register/:token',
   login: '/login',
   social: '/login/social',
+  socialLogin: '/login/social',
   ssoLogin: '/sso/login',
   verifyOtp: '/verify-otp',
   verify: '/verify',

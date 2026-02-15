@@ -99,4 +99,8 @@ export class UpdateBookingDto {
   @IsBoolean()
   @Type(() => Boolean)
   isDraft?: boolean; // Optional - if true, keeps as DRAFT. If false, submits booking (changes status to SUBMITTED and creates approval header)
+
+  @IsOptional()
+  @IsString()
+  manualApproverId?: string; // Optional: Manually selected approver ID (overrides HRIS)
 }

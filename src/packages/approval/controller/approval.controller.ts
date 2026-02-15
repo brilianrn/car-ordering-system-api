@@ -6,13 +6,13 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   HttpStatus,
   Inject,
   Param,
   ParseIntPipe,
   Patch,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -30,13 +30,9 @@ export class ApprovalController {
   ) {}
 
   @Get(approvalRoute.list)
-  async findApprovalList(
-    @Query() query: QueryApprovalListDto,
-    @Headers('x-user-id') userId: string,
-    @Res() res: Response,
-  ) {
+  async findApprovalList(@Query() query: QueryApprovalListDto, @Req() req: any, @Res() res: Response) {
     try {
-      const result = await this.usecase.findApprovalList(query, userId);
+      const result = await this.usecase.findApprovalList(query, req.user);
 
       if (result?.error) {
         const statusCode =
@@ -70,11 +66,11 @@ export class ApprovalController {
   async approveBooking(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ApproveBookingDto,
-    @Headers('x-user-id') userId: string,
+    @Req() req: any,
     @Res() res: Response,
   ) {
     try {
-      const result = await this.usecase.approveBooking(id, dto, userId);
+      const result = await this.usecase.approveBooking(id, dto, req.user);
 
       if (result?.error) {
         const statusCode =

@@ -60,4 +60,10 @@ export interface BookingsRepositoryPort {
   findManyCarpoolGroup(): Promise<CarpoolGroup[]>;
 
   findInvitationBookings(carpoolGroupId: number): Promise<CarpoolInvite[]>;
+
+  findFirstEmployeeByRole(
+    roleName: string,
+  ): Promise<{ employeeId: string; fullName: string; email: string | null } | null>;
+
+  findEmployeeRoles(employeeId: string): Promise<string[]>;
 }
