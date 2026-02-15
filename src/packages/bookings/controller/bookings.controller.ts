@@ -16,7 +16,6 @@ import {
   Patch,
   Post,
   Query,
-  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -77,22 +76,10 @@ export class BookingsController implements BookingsControllerPort {
   }
 
   @Get(bookingRoute.list)
-  async findAll(
-    @Query() query: QueryBookingDto,
-    @Headers('x-user-id') userId: string,
-    @Req() req: any,
-    @Res() res: Response,
-  ) {
+  async findAll(@Query() query: QueryBookingDto, @Headers('x-user-id') userId: string, @Res() res: Response) {
     try {
-      // Default: Use userId as requesterId for "My Bookings" filter
-      let requesterId: string | undefined = userId;
-
-      // If user is GA or ADMIN, allow viewing all bookings (requesterId = undefined)
-      // unless they explicitly filter by requesterId in query (handled in usecase)
-      const userRoles = req.user?.roles as Role[];
-      if (userRoles?.includes(Role.GA) || userRoles?.includes(Role.ADMIN)) {
-        requesterId = undefined;
-      }
+      // Force ownership filter: Use userId as requesterId for all roles (including GA/ADMIN)
+      const requesterId = userId;
 
       const result = await this.usecase.findAll(query, requesterId);
 

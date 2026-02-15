@@ -1270,8 +1270,8 @@ export class BookingsUseCase implements BookingsUsecasePort {
         };
       }
 
-      // Optional: Validate ownership for DRAFT bookings (only requester can view their own drafts)
-      if (booking.bookingStatus === BookingStatus.DRAFT && requesterId && booking.requesterId !== requesterId) {
+      // FORCE FILTER: Strict ownership check for ALL statuses
+      if (requesterId && booking.requesterId !== requesterId) {
         return {
           error: {
             message: 'You are not authorized to view this booking',
@@ -1310,7 +1310,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
     }
   };
 
-  findTripDetail = async (id: number): Promise<IUsecaseResponse<ITripDetail>> => {
+  findTripDetail = async (id: number, requesterId?: string): Promise<IUsecaseResponse<ITripDetail>> => {
     try {
       // 1. Get booking with all relations
       const booking = (await this.repository.findById(id)) as IBookingWithRelations | null;
@@ -1320,6 +1320,16 @@ export class BookingsUseCase implements BookingsUsecasePort {
           error: {
             message: `Booking with ID ${id} not found`,
             code: HttpStatus.NOT_FOUND,
+          },
+        };
+      }
+
+      // FORCE FILTER: Strict ownership check
+      if (requesterId && booking.requesterId !== requesterId) {
+        return {
+          error: {
+            message: 'You are not authorized to view this trip detail',
+            code: HttpStatus.FORBIDDEN,
           },
         };
       }
