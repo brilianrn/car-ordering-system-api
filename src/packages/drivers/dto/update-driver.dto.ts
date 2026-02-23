@@ -62,4 +62,12 @@ export class UpdateDriverDto {
   @IsOptional()
   @IsString()
   internalNik?: string;
+
+  @IsOptional()
+  @IsString()
+  employeeId?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
 }
