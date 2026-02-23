@@ -1270,14 +1270,20 @@ export class BookingsUseCase implements BookingsUsecasePort {
         };
       }
 
-      // FORCE FILTER: Strict ownership check for ALL statuses
-      if (requesterId && booking.requesterId !== requesterId) {
-        return {
-          error: {
-            message: 'You are not authorized to view this booking',
-            code: HttpStatus.FORBIDDEN,
-          },
-        };
+      // Authorization: allow the requester OR the assigned driver to view the booking
+      if (requesterId) {
+        const assignedDriverEmployeeId = (booking as any)?.assignment?.driverChosen?.employeeId;
+        const isRequester = booking.requesterId === requesterId;
+        const isAssignedDriver = assignedDriverEmployeeId !== undefined && assignedDriverEmployeeId === requesterId;
+
+        if (!isRequester && !isAssignedDriver) {
+          return {
+            error: {
+              message: 'You are not authorized to view this booking',
+              code: HttpStatus.FORBIDDEN,
+            },
+          };
+        }
       }
 
       // Transform S3 keys into presigned URLs for vehicle images
@@ -1324,14 +1330,20 @@ export class BookingsUseCase implements BookingsUsecasePort {
         };
       }
 
-      // FORCE FILTER: Strict ownership check
-      if (requesterId && booking.requesterId !== requesterId) {
-        return {
-          error: {
-            message: 'You are not authorized to view this trip detail',
-            code: HttpStatus.FORBIDDEN,
-          },
-        };
+      // Authorization: allow the requester OR the assigned driver to view the trip detail
+      if (requesterId) {
+        const assignedDriverEmployeeId = (booking as any)?.assignment?.driverChosen?.employeeId;
+        const isRequester = booking.requesterId === requesterId;
+        const isAssignedDriver = assignedDriverEmployeeId !== undefined && assignedDriverEmployeeId === requesterId;
+
+        if (!isRequester && !isAssignedDriver) {
+          return {
+            error: {
+              message: 'You are not authorized to view this trip detail',
+              code: HttpStatus.FORBIDDEN,
+            },
+          };
+        }
       }
 
       let carpoolBookings: IBooking[] = [];
