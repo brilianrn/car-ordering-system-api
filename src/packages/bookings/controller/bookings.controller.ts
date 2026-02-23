@@ -16,6 +16,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -76,10 +77,23 @@ export class BookingsController implements BookingsControllerPort {
   }
 
   @Get(bookingRoute.list)
-  async findAll(@Query() query: QueryBookingDto, @Headers('x-user-id') userId: string, @Res() res: Response) {
+  async findAll(
+    @Query() query: QueryBookingDto,
+    @Headers('x-user-id') userId: string,
+    @Req() req: any,
+    @Res() res: Response,
+  ) {
     try {
-      // Force ownership filter: Use userId as requesterId for all roles (including GA/ADMIN)
-      const requesterId = userId;
+      // Check user roles from JWT payload
+      const userRoles = req.user?.userRole || req.user?.roles || [];
+      const isSuperAdminOrGa = userRoles.some(
+        (role: any) =>
+          (role || role.role) === Role.ADMIN || (role || role.role) === Role.GA || (role || role.role) === 'FINANCE',
+      );
+
+      // Force ownership filter ONLY for non-admin/GA users
+      // If superadmin/GA explicitly requests a specific requesterId via query, usecase will handle it
+      const requesterId = isSuperAdminOrGa ? undefined : userId;
 
       const result = await this.usecase.findAll(query, requesterId);
 

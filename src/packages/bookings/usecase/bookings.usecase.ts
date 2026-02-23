@@ -374,7 +374,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
       const where: Prisma.BookingWhereInput = {};
 
       // 1. Determine effective requester and initial status
-      const effectiveRequesterId = requesterId || query.requesterId;
+      const effectiveRequesterId = requesterId;
       const isTripsView = query.bookingStatus === BookingStatus.ASSIGNED;
 
       // 2. Build Status Filter
