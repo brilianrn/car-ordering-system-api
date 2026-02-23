@@ -1,8 +1,11 @@
-import { S3Service } from '@/shared/utils';
+import { getDriverAccountCreatedEmailTemplate } from '@/shared/templates/mail/driver-account-created-email';
+import { clientDb, S3Service } from '@/shared/utils';
 import { globalLogger as Logger } from '@/shared/utils/logger';
+import { NotificationService } from '@/shared/utils/notification.service';
 import { IUsecaseResponse } from '@/shared/utils/rest-api/types';
 import { Inject, Injectable } from '@nestjs/common';
-import { DriverType, Prisma, RealtimeStatus } from '@prisma/client';
+import { DriverType, Prisma, RealtimeStatus, Role } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 import { IDriver, IDriverDetailResponse, IDriverEligibleResponse, IDriverListResponse } from '../domain/response';
 import { CreateDriverDto } from '../dto/create-driver.dto';
 import { ListDriverQueryDto } from '../dto/list-driver-query.dto';
@@ -16,6 +19,7 @@ export class DriversUseCase implements DriversUsecasePort {
     @Inject('DriversRepositoryPort')
     private readonly repository: DriversRepositoryPort,
     private readonly s3Service: S3Service,
+    private readonly notificationService: NotificationService,
   ) {
     this.repository = repository;
   }
@@ -82,9 +86,9 @@ export class DriversUseCase implements DriversUsecasePort {
 
   create = async (createDto: CreateDriverDto, userId: string): Promise<IUsecaseResponse<IDriver>> => {
     try {
-      let driverCode: string;
-
+      // ORDER STEP 1: Generate driverCode immediately
       // If driverCode is provided, validate uniqueness
+      let driverCode: string;
       if (createDto.driverCode) {
         const existingByCode = await this.repository.findFirst({
           driverCode: createDto.driverCode.toUpperCase(),
@@ -105,7 +109,7 @@ export class DriversUseCase implements DriversUsecasePort {
         if (!generatedCode) {
           return {
             error: {
-              message: 'FAILED_TO_GENERATE_DRIVER_CODE',
+              message: 'INTERNAL_SERVER_ERROR_CODE_GEN_FAILED',
               code: 500,
             },
           };
@@ -113,6 +117,7 @@ export class DriversUseCase implements DriversUsecasePort {
         driverCode = generatedCode;
       }
 
+      // ORDER STEP 2: Validation
       // Validate unique simNumber
       const existingBySIM = await this.repository.findFirst({
         simNumber: createDto.simNumber,
@@ -125,6 +130,18 @@ export class DriversUseCase implements DriversUsecasePort {
             code: 409,
           },
         };
+      }
+
+      // Auto-provisioning Validation: If no employeeId (New Account), validate email & fullName
+      if (!createDto.employeeId) {
+        if (!createDto.email || !createDto.fullName) {
+          return {
+            error: {
+              message: 'EMAIL_REQUIRED_FOR_AUTO_PROVISIONING', // As per req, though checking both
+              code: 400,
+            },
+          };
+        }
       }
 
       // Validate vendor based on driverType
@@ -192,38 +209,182 @@ export class DriversUseCase implements DriversUsecasePort {
         };
       }
 
-      const driver = await this.repository.create({
-        driverCode,
-        fullName: createDto.fullName,
-        internalNik: createDto.internalNik,
-        driverType: createDto.driverType,
-        vendor:
-          createDto.driverType === DriverType.EXTERNAL && createDto.vendorId
-            ? { connect: { id: createDto.vendorId } }
-            : undefined,
-        employee:
-          createDto.driverType === DriverType.INTERNAL && createDto.employeeId
-            ? { connect: { employeeId: createDto.employeeId } }
-            : undefined,
-        simNumber: createDto.simNumber,
-        simExpiry: new Date(createDto.simExpiry),
-        phoneNumber: createDto.phoneNumber,
-        transmissionPref: createDto.transmissionPref,
-        plantLocation: createDto.plantLocation,
-        realtimeStatus: createDto.realtimeStatus ?? RealtimeStatus.Idle,
-        isDedicated: createDto.isDedicated ?? false,
-        dedicatedVehicle:
-          createDto.isDedicated && createDto.dedicatedVehicleId
-            ? { connect: { id: createDto.dedicatedVehicleId } }
-            : undefined,
-        photoAsset: createDto.photoAssetId ? { connect: { id: createDto.photoAssetId } } : undefined,
-        ktpAsset: createDto.ktpAssetId ? { connect: { id: createDto.ktpAssetId } } : undefined,
-        simAsset: createDto.simAssetId ? { connect: { id: createDto.simAssetId } } : undefined,
-        createdBy: userId,
+      // Check if email already exists in Account table if we are auto-provisioning
+      if (!createDto.employeeId && createDto.email) {
+        const existingAccount = await clientDb.account.findUnique({
+          where: { email: createDto.email },
+        });
+
+        if (existingAccount) {
+          return {
+            error: {
+              message: 'EMAIL_ALREADY_USED',
+              code: 409,
+            },
+          };
+        }
+      }
+
+      // ORDER STEP 3: Transaction
+      let tempPassword: string | null = null;
+      let shouldSendEmail = false;
+
+      const transactionResult = await clientDb.$transaction(async (tx) => {
+        let employeeId = createDto.employeeId;
+
+        // Auto-provisioning: Create Employee & Account if needed
+        if (!employeeId) {
+          // Get default org unit (assuming ID = 1, adjust as needed)
+          const defaultOrgUnit = await clientDb.organizationUnit.findFirst({
+            where: { deletedAt: null },
+            orderBy: { id: 'asc' },
+          });
+
+          if (!defaultOrgUnit) {
+            throw new Error('DEFAULT_ORG_UNIT_NOT_FOUND');
+          }
+
+          // Generate unique employeeId
+          const timestamp = Date.now().toString().slice(-8);
+          const generatedEmployeeId =
+            createDto.driverType === DriverType.INTERNAL ? `INT-DRV-${timestamp}` : `EXT-DRV-${timestamp}`;
+
+          // Determine password: Prefer internalNik, fallback to generic
+          if (createDto.internalNik) {
+            tempPassword = createDto.internalNik;
+          } else {
+            tempPassword = `Driver${createDto.simNumber.slice(-4)}`;
+          }
+
+          const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+          // Get DRIVER role
+          const driverRole = await clientDb.rBACRole.findFirst({
+            where: { name: Role.DRIVER },
+          });
+
+          if (!driverRole) {
+            throw new Error('DRIVER_ROLE_NOT_FOUND');
+          }
+
+          // 1. Create Employee
+          const newEmployee = await tx.employee.create({
+            data: {
+              employeeId: generatedEmployeeId,
+              fullName: createDto.fullName,
+              email: createDto.email,
+              orgUnitId: defaultOrgUnit.id,
+              effectiveFrom: new Date(),
+              isActive: true, // Auto-active
+              phoneNumber: createDto.phoneNumber,
+              effectiveRoles: [Role.DRIVER],
+              createdBy: userId,
+            },
+          });
+          employeeId = newEmployee.employeeId;
+
+          // 2. Create Account
+          await tx.account.create({
+            data: {
+              email: createDto.email!,
+              password: hashedPassword,
+              employeeId: newEmployee.employeeId,
+              isVerified: true,
+            },
+          });
+
+          // 3. Assign DRIVER role
+          await tx.userRole.create({
+            data: {
+              employeeId: newEmployee.employeeId,
+              roleId: driverRole.id,
+              assignedBy: userId,
+              isActive: true,
+            },
+          });
+
+          shouldSendEmail = true;
+        }
+
+        // 4. Create Driver using repository pattern logic but inside transaction
+        // Since repository methods might not support transaction passed in, we use tx directly here to be safe and atomic
+        const newDriver = await tx.driver.create({
+          data: {
+            driverCode,
+            fullName: createDto.fullName,
+            internalNik: createDto.internalNik,
+            driverType: createDto.driverType,
+            vendor:
+              createDto.driverType === DriverType.EXTERNAL && createDto.vendorId
+                ? { connect: { id: createDto.vendorId } }
+                : undefined,
+            employee: employeeId ? { connect: { employeeId } } : undefined,
+            simNumber: createDto.simNumber,
+            simExpiry: new Date(createDto.simExpiry),
+            phoneNumber: createDto.phoneNumber,
+            transmissionPref: createDto.transmissionPref,
+            plantLocation: createDto.plantLocation,
+            realtimeStatus: createDto.realtimeStatus ?? RealtimeStatus.Idle,
+            isDedicated: createDto.isDedicated ?? false,
+            dedicatedVehicle:
+              createDto.isDedicated && createDto.dedicatedVehicleId
+                ? { connect: { id: createDto.dedicatedVehicleId } }
+                : undefined,
+            photoAsset: createDto.photoAssetId ? { connect: { id: createDto.photoAssetId } } : undefined,
+            ktpAsset: createDto.ktpAssetId ? { connect: { id: createDto.ktpAssetId } } : undefined,
+            simAsset: createDto.simAssetId ? { connect: { id: createDto.simAssetId } } : undefined,
+            createdBy: userId,
+          },
+          include: {
+            vendor: true,
+            employee: {
+              include: {
+                orgUnit: true,
+              },
+            },
+            dedicatedVehicle: true,
+            photoAsset: true,
+            ktpAsset: true,
+            simAsset: true,
+          },
+        });
+
+        return newDriver;
       });
 
-      const enrichedDriver = await this.enrichDriverWithPresignedUrls(driver);
+      // Send email notification (outside transaction)
+      if (shouldSendEmail && tempPassword && createDto.email) {
+        try {
+          const emailTemplate = getDriverAccountCreatedEmailTemplate({
+            driverName: createDto.fullName,
+            email: createDto.email,
+            tempPassword,
+            loginUrl: process.env.FRONTEND_URL || 'https://app.example.com/login',
+            driverCode,
+          });
 
+          await this.notificationService.sendEmail({
+            to: createDto.email,
+            subject: emailTemplate.subject,
+            body: emailTemplate.text,
+            html: emailTemplate.html,
+          });
+
+          Logger.info(
+            `Account creation email sent to ${createDto.email} for driver ${driverCode}`,
+            'DriversUseCase.create',
+          );
+        } catch (emailError) {
+          // Log email error but don't fail the driver creation
+          Logger.error(
+            emailError instanceof Error ? emailError.message : 'Failed to send account creation email',
+            emailError instanceof Error ? emailError.stack : undefined,
+            'DriversUseCase.create - Email Notification',
+          );
+        }
+      }
+
+      const enrichedDriver = await this.enrichDriverWithPresignedUrls(transactionResult);
       return { data: enrichedDriver };
     } catch (error) {
       Logger.error(
@@ -231,6 +392,8 @@ export class DriversUseCase implements DriversUsecasePort {
         error instanceof Error ? error.stack : undefined,
         'DriversUseCase.create',
       );
+
+      // Map known transaction errors if possible, or just return as is
       return { error };
     }
   };
@@ -691,35 +854,46 @@ export class DriversUseCase implements DriversUsecasePort {
    * Example: DRV001, DRV002, DRV003
    * Retries until a unique code is found
    */
+  /**
+   * Generate unique driver code with format: DRV{SEQUENCE}
+   * Example: DRV001, DRV002, DRV003
+   * Retries until a unique code is found
+   */
   private async generateDriverCode(): Promise<string | null> {
     try {
-      // Find all existing driver codes with DRV prefix
-      const allDriversWithPrefix = await this.repository.findList({
-        skip: 0,
-        take: 10000,
-        where: {
+      const year = new Date().getFullYear();
+      const prefix = `DRV-${year}-`;
+
+      // Find the latest driver code with DRV-{YEAR} prefix
+      const latestDriver = await this.repository.findFirst(
+        {
           driverCode: {
-            startsWith: 'DRV',
+            startsWith: prefix,
           },
         },
-      });
+        {
+          driverCode: 'desc',
+        },
+      );
 
-      let maxSequence = 0;
-      for (const driver of allDriversWithPrefix) {
-        const code = driver.driverCode;
-        // Extract numeric part after "DRV"
-        const numericPart = code.substring(3);
+      let nextSequence = 1;
+
+      if (latestDriver && latestDriver.driverCode) {
+        const code = latestDriver.driverCode;
+        // Format: DRV-YYYY-XXX
+        // Length of prefix is 9 (DRV-202X-)
+        const numericPart = code.substring(prefix.length);
         const sequence = parseInt(numericPart, 10);
-        if (!isNaN(sequence) && sequence > maxSequence) {
-          maxSequence = sequence;
+        if (!isNaN(sequence)) {
+          nextSequence = sequence + 1;
         }
       }
 
-      const maxAttempts = 100;
+      const maxAttempts = 5;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const newSequence = maxSequence + 1 + attempt;
-        const sequenceStr = newSequence.toString().padStart(3, '0');
-        const generatedCode = `DRV${sequenceStr}`;
+        const sequenceToTry = nextSequence + attempt;
+        const sequenceStr = sequenceToTry.toString().padStart(3, '0');
+        const generatedCode = `${prefix}${sequenceStr}`;
 
         const duplicateCheck = await this.repository.findFirst({
           driverCode: generatedCode,

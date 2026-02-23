@@ -1,4 +1,4 @@
-import { Prisma, Driver } from '@prisma/client';
+import { Driver, Prisma } from '@prisma/client';
 
 export interface DriversRepositoryPort {
   create: (data: Prisma.DriverCreateInput) => Promise<Driver>;
@@ -13,7 +13,10 @@ export interface DriversRepositoryPort {
     orderBy?: Prisma.DriverOrderByWithRelationInput;
   }) => Promise<Driver[]>;
   count: (where?: Prisma.DriverWhereInput) => Promise<number>;
-  findFirst: (where: Prisma.DriverWhereInput) => Promise<Driver | null>;
+  findFirst: (
+    where: Prisma.DriverWhereInput,
+    orderBy?: Prisma.DriverOrderByWithRelationInput,
+  ) => Promise<Driver | null>;
   findEligible: (params: { where: Prisma.DriverWhereInput; take?: number }) => Promise<Driver[]>;
   findExpiredSIM: () => Promise<Driver[]>;
 }

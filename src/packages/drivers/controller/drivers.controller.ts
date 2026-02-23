@@ -36,6 +36,7 @@ export class DriversController implements DriversControllerPort {
 
   @Post(driverRoute.create)
   async create(@Body() createDto: CreateDriverDto, @Headers('x-user-id') userId: string, @Res() res: Response) {
+    console.log('Use Case Payload:', JSON.stringify(createDto, null, 2));
     try {
       const result = await this.driversUseCase.create(createDto, userId);
 

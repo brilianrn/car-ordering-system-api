@@ -170,13 +170,17 @@ export class DriversRepository implements DriversRepositoryPort {
     }
   };
 
-  findFirst = async (where: Prisma.DriverWhereInput): Promise<Driver | null> => {
+  findFirst = async (
+    where: Prisma.DriverWhereInput,
+    orderBy?: Prisma.DriverOrderByWithRelationInput,
+  ): Promise<Driver | null> => {
     try {
       return await this.db.driver.findFirst({
         where: {
           ...where,
           deletedAt: null,
         },
+        orderBy,
         include: {
           vendor: true,
           dedicatedVehicle: true,

@@ -1,10 +1,13 @@
 import { DriversController } from '@/packages/drivers/controller/drivers.controller';
 import { DriversRepository } from '@/packages/drivers/repository/drivers.repository';
 import { DriversUseCase } from '@/packages/drivers/usecase/drivers.usecase';
-import { S3Service } from '@/shared/utils';
+import { WhatsAppService } from '@/shared/services/whatsapp.service';
+import { NotificationService, S3Service } from '@/shared/utils';
 import { Module } from '@nestjs/common';
+import { RabbitMQModule } from './rabbitmq.module';
 
 @Module({
+  imports: [RabbitMQModule],
   controllers: [DriversController],
   providers: [
     {
@@ -14,6 +17,8 @@ import { Module } from '@nestjs/common';
     DriversRepository,
     DriversUseCase,
     S3Service,
+    NotificationService,
+    WhatsAppService,
   ],
   exports: [DriversRepository, DriversUseCase],
 })

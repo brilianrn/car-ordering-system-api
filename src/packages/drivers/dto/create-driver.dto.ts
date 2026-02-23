@@ -32,6 +32,10 @@ export class CreateDriverDto {
   @IsString()
   employeeId?: string;
 
+  @IsOptional()
+  @IsString()
+  email?: string;
+
   @IsEnum(DriverType)
   driverType: DriverType;
 
