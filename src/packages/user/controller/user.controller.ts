@@ -2,9 +2,26 @@ import { Roles } from '@/packages/auth/decorators/roles.decorator';
 import { ERoutes } from '@/shared/constants/routes';
 import { globalLogger as Logger } from '@/shared/utils/logger';
 import { response } from '@/shared/utils/rest-api/response';
-import { Body, Controller, Delete, Get, HttpStatus, Inject, Param, Patch, Query, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpStatus,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Role } from '@prisma/client';
 import type { Response } from 'express';
+import { memoryStorage } from 'multer';
 import { ListUserQueryDto, UpdateRolesDto, UpdateUserDto } from '../dto';
 import { UserUsecasePort } from '../ports/usecase.port';
 
@@ -137,6 +154,96 @@ export class UserController {
     } catch (error) {
       return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
         message: 'An error occurred while deleting user',
+      });
+    }
+  }
+
+  // ─── POST /sync-hr ──────────────────────────────────────────────────────────
+
+  @Post('/sync-hr')
+  @Roles(Role.GA, Role.ADMIN)
+  async syncHr(@Req() req: any, @Res() res: Response) {
+    try {
+      const actorId: string = req.user?.employeeId || 'SYSTEM';
+      const result = await this.usecase.syncHr(actorId);
+
+      if (result?.error) {
+        return response[result.error.code ?? HttpStatus.INTERNAL_SERVER_ERROR](res, {
+          message: result.error.message,
+        });
+      }
+
+      return response[HttpStatus.OK](res, {
+        message: `HRIS sync completed – ${result.data!.created} created, ${result.data!.updated} updated, ${result.data!.failed} failed`,
+        data: result.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Unknown error in syncHr controller',
+        error instanceof Error ? error.stack : undefined,
+        'UserController.syncHr',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: 'An error occurred during HR sync',
+      });
+    }
+  }
+
+  // ─── POST /upload-l1 ────────────────────────────────────────────────────────
+
+  @Post('/upload-l1')
+  @Roles(Role.GA, Role.ADMIN)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(), // keep file in memory as Buffer
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+      fileFilter: (_req, file, cb) => {
+        const allowed = [
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-excel',
+          'application/octet-stream', // some clients send xlsx as this
+        ];
+        if (
+          allowed.includes(file.mimetype) ||
+          file.originalname.endsWith('.xlsx') ||
+          file.originalname.endsWith('.xls')
+        ) {
+          cb(null, true);
+        } else {
+          cb(new Error('Only Excel files (.xlsx / .xls) are allowed'), false);
+        }
+      },
+    }),
+  )
+  async uploadL1(@UploadedFile() file: any, @Req() req: any, @Res() res: Response) {
+    try {
+      if (!file) {
+        return response[HttpStatus.BAD_REQUEST](res, {
+          message: 'No file uploaded. Attach an Excel file with form-field name "file".',
+        });
+      }
+
+      const actorId: string = req.user?.employeeId || 'SYSTEM';
+      const result = await this.usecase.uploadL1(file.buffer, actorId);
+
+      if (result?.error) {
+        return response[result.error.code ?? HttpStatus.INTERNAL_SERVER_ERROR](res, {
+          message: result.error.message,
+        });
+      }
+
+      return response[HttpStatus.OK](res, {
+        message: `L1 mapping upload completed – ${result.data!.updated} updated, ${result.data!.failed} failed`,
+        data: result.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Unknown error in uploadL1 controller',
+        error instanceof Error ? error.stack : undefined,
+        'UserController.uploadL1',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: error instanceof Error ? error.message : 'An error occurred during L1 upload',
       });
     }
   }

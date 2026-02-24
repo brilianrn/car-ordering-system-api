@@ -9,10 +9,35 @@ export interface IUpdateUserResponse {
   employeeId: string;
 }
 
+export interface ISyncHrResponse {
+  batchId: string;
+  synced: number;
+  created: number;
+  updated: number;
+  accountsCreated: number;
+  failed: number;
+  errors: string[];
+}
+
+export interface IUploadL1FailedRow {
+  row: number;
+  employeeId: string;
+  approverId: string;
+  reason: string;
+}
+
+export interface IUploadL1Response {
+  updated: number;
+  failed: number;
+  failedRows: IUploadL1FailedRow[];
+}
+
 export interface UserUsecasePort {
   findAll(query: ListUserQueryDto): Promise<IUsecaseResponse<IPaginationResponse<Employee>>>;
   findOne(employeeId: string): Promise<IUsecaseResponse<Employee>>;
   updateUser(employeeId: string, dto: UpdateUserDto): Promise<IUsecaseResponse<IUpdateUserResponse>>;
   updateRoles(employeeId: string, dto: UpdateRolesDto, actorId: string): Promise<IUsecaseResponse<IUpdateUserResponse>>;
   remove(employeeId: string, actorId: string): Promise<IUsecaseResponse<void>>;
+  syncHr(actorId: string): Promise<IUsecaseResponse<ISyncHrResponse>>;
+  uploadL1(fileBuffer: Buffer, actorId: string): Promise<IUsecaseResponse<IUploadL1Response>>;
 }
