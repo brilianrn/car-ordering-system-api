@@ -31,9 +31,18 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchWithRetry(url: string, params: Record<string, string>, retries = MAX_RETRIES): Promise<any> {
+async function fetchWithRetry(
+  url: string,
+  params: Record<string, string>,
+  apiKey: string,
+  retries = MAX_RETRIES,
+): Promise<any> {
   const httpsAgent = new https.Agent({ rejectUnauthorized: false }); // self-signed certs in dev
   let lastError: unknown;
+
+  // Masked log as requested by user
+  const maskedKey = apiKey ? `${apiKey.substring(0, 10)}...` : 'undefined';
+  Logger.debug(`[HRIS Sync] Sending Request to ${url} with x-api-key: ${maskedKey}`, 'UserUseCase.fetchWithRetry');
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -41,11 +50,20 @@ async function fetchWithRetry(url: string, params: Record<string, string>, retri
         params,
         timeout: HTTP_TIMEOUT,
         httpsAgent,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'x-api-key': apiKey,
+          'Content-Type': 'application/json',
+        },
       });
       return response.data;
     } catch (err) {
       lastError = err;
+
+      // Explicit 401 Handling
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        throw new Error('Failed to sync: Invalid or Missing MSA API Key');
+      }
+
       const wait = attempt * 1_000; // 1s, 2s, 3s
       Logger.warn(
         `HRIS fetch attempt ${attempt}/${retries} failed: ${err instanceof Error ? err.message : String(err)}. Retrying in ${wait}ms…`,
@@ -58,6 +76,8 @@ async function fetchWithRetry(url: string, params: Record<string, string>, retri
   throw lastError;
 }
 
+import { ConfigService } from '@nestjs/config';
+
 // ─── UseCase ─────────────────────────────────────────────────────────────────
 
 @Injectable()
@@ -65,6 +85,7 @@ export class UserUseCase implements UserUsecasePort {
   constructor(
     @Inject('UserRepositoryPort')
     private readonly repository: UserRepositoryPort,
+    private readonly configService: ConfigService,
   ) {}
 
   // ─── Existing methods ───────────────────────────────────────────────────────
@@ -238,9 +259,14 @@ export class UserUseCase implements UserUsecasePort {
     try {
       // 1. Fetch from HRIS (with retry)
       Logger.info('Starting HRIS sync…', 'UserUseCase.syncHr');
-      const responseData = await fetchWithRetry(`${HRIS_BASE_URL}/api/v1/hr/employees`, {
-        company: HRIS_COMPANY,
-      });
+
+      const apiKey = this.configService.get<string>('MSA_API_KEY') || '';
+
+      const responseData = await fetchWithRetry(
+        `${HRIS_BASE_URL}/api/v1/hr/employees`,
+        { company: HRIS_COMPANY },
+        apiKey,
+      );
 
       const rawEmployees: any[] = responseData?.data ?? [];
 
@@ -349,8 +375,14 @@ export class UserUseCase implements UserUsecasePort {
         })
         .catch(() => {}); // best-effort
 
+      // Propagate 401 specifically as Unauthorized code if message matches
+      const isUnauthorized = msg.includes('Failed to sync: Invalid or Missing MSA API Key');
+
       return {
-        error: { message: msg, code: HttpStatus.INTERNAL_SERVER_ERROR },
+        error: {
+          message: msg,
+          code: isUnauthorized ? HttpStatus.UNAUTHORIZED : HttpStatus.INTERNAL_SERVER_ERROR,
+        },
       };
     }
   }
