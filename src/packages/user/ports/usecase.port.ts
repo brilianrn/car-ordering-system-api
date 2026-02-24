@@ -32,6 +32,13 @@ export interface IUploadL1Response {
   failedRows: IUploadL1FailedRow[];
 }
 
+export interface IAssignLeadersResponse {
+  promoted: number;
+  skipped: number;
+  notFound: number;
+  message: string;
+}
+
 export interface UserUsecasePort {
   findAll(query: ListUserQueryDto): Promise<IUsecaseResponse<IPaginationResponse<Employee>>>;
   findOne(employeeId: string): Promise<IUsecaseResponse<Employee>>;
@@ -40,4 +47,5 @@ export interface UserUsecasePort {
   remove(employeeId: string, actorId: string): Promise<IUsecaseResponse<void>>;
   syncHr(actorId: string): Promise<IUsecaseResponse<ISyncHrResponse>>;
   uploadL1(fileBuffer: Buffer, actorId: string): Promise<IUsecaseResponse<IUploadL1Response>>;
+  assignLeaders(leaderIds: string[], actorId: string): Promise<IUsecaseResponse<IAssignLeadersResponse>>;
 }

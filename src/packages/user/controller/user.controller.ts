@@ -22,7 +22,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Role } from '@prisma/client';
 import type { Response } from 'express';
 import { memoryStorage } from 'multer';
-import { ListUserQueryDto, UpdateRolesDto, UpdateUserDto } from '../dto';
+import { AssignLeadersDto, ListUserQueryDto, UpdateRolesDto, UpdateUserDto } from '../dto';
 import { UserUsecasePort } from '../ports/usecase.port';
 
 @Controller([ERoutes.USER, ERoutes.USERS])
@@ -244,6 +244,37 @@ export class UserController {
       );
       return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
         message: error instanceof Error ? error.message : 'An error occurred during L1 upload',
+      });
+    }
+  }
+
+  // ─── POST /assign-leaders ────────────────────────────────────────────────────
+
+  @Post('/assign-leaders')
+  @Roles(Role.GA, Role.ADMIN)
+  async assignLeaders(@Body() dto: AssignLeadersDto, @Req() req: any, @Res() res: Response) {
+    try {
+      const actorId: string = req.user?.employeeId || 'SYSTEM';
+      const result = await this.usecase.assignLeaders(dto.leaderIds, actorId);
+
+      if (result?.error) {
+        return response[result.error.code ?? HttpStatus.INTERNAL_SERVER_ERROR](res, {
+          message: result.error.message,
+        });
+      }
+
+      return response[HttpStatus.OK](res, {
+        message: result.data!.message,
+        data: result.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Unknown error in assignLeaders controller',
+        error instanceof Error ? error.stack : undefined,
+        'UserController.assignLeaders',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: 'An error occurred during leader assignment',
       });
     }
   }

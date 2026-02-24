@@ -11,6 +11,7 @@ import { UpdateRolesDto } from '../dto/update-roles.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
 import { UserRepositoryPort } from '../ports/repository.port';
 import {
+  IAssignLeadersResponse,
   ISyncHrResponse,
   IUpdateUserResponse,
   IUploadL1FailedRow,
@@ -237,6 +238,41 @@ export class UserUseCase implements UserUsecasePort {
       );
       return {
         error: { message: 'An error occurred while deleting user', code: HttpStatus.INTERNAL_SERVER_ERROR },
+      };
+    }
+  }
+
+  // ─── assignLeaders ───────────────────────────────────────────────────────────
+
+  async assignLeaders(leaderIds: string[], actorId: string): Promise<IUsecaseResponse<IAssignLeadersResponse>> {
+    try {
+      if (!leaderIds || leaderIds.length === 0) {
+        return {
+          error: { message: 'leaderIds must be a non-empty array', code: HttpStatus.BAD_REQUEST },
+        };
+      }
+
+      const result = await this.repository.bulkEnsureLeaderRole(leaderIds, actorId);
+
+      Logger.info(
+        `Bulk LEADER assign – promoted: ${result.promoted}, skipped: ${result.skipped}, notFound: ${result.notFound}`,
+        'UserUseCase.assignLeaders',
+      );
+
+      return {
+        data: {
+          ...result,
+          message: `Successfully promoted ${result.promoted} user(s) to LEADER.`,
+        },
+      };
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Unknown error during assignLeaders',
+        error instanceof Error ? error.stack : undefined,
+        'UserUseCase.assignLeaders',
+      );
+      return {
+        error: { message: 'An error occurred while assigning leader roles', code: HttpStatus.INTERNAL_SERVER_ERROR },
       };
     }
   }

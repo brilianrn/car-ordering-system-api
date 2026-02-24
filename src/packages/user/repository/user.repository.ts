@@ -376,6 +376,67 @@ export class UserRepository implements UserRepositoryPort {
     }
   }
 
+  async bulkEnsureLeaderRole(
+    employeeIds: string[],
+    assignedBy: string,
+  ): Promise<{ promoted: number; skipped: number; notFound: number }> {
+    const result = { promoted: 0, skipped: 0, notFound: 0 };
+
+    // Look up the LEADER role from RBAC once, shared across all employees
+    const leaderRole = await this.db.rBACRole.findFirst({
+      where: { name: 'LEADER' },
+      select: { id: true },
+    });
+
+    if (!leaderRole) return result; // LEADER role doesn't exist in RBAC – nothing to do
+
+    for (const employeeId of employeeIds) {
+      // 1. Verify employee exists
+      const employee = await this.db.employee.findUnique({
+        where: { employeeId, deletedAt: null },
+        select: { employeeId: true, effectiveRoles: true },
+      });
+
+      if (!employee) {
+        result.notFound++;
+        continue;
+      }
+
+      // 2. Check if UserRole record already active for LEADER
+      const existingUserRole = await this.db.userRole.findFirst({
+        where: { employeeId, roleId: leaderRole.id, isActive: true },
+        select: { id: true },
+      });
+
+      if (existingUserRole) {
+        result.skipped++;
+        continue;
+      }
+
+      // 3. Create UserRole entry
+      await this.db.userRole.create({
+        data: {
+          employeeId,
+          roleId: leaderRole.id,
+          assignedBy,
+          isActive: true,
+        },
+      });
+
+      // 4. Sync Employee.effectiveRoles array if LEADER not already there
+      if (!employee.effectiveRoles.includes(Role.LEADER)) {
+        await this.db.employee.update({
+          where: { employeeId },
+          data: { effectiveRoles: { push: Role.LEADER } },
+        });
+      }
+
+      result.promoted++;
+    }
+
+    return result;
+  }
+
   async createSyncBatch(data: { runType: 'MANUAL' | 'FULL' | 'DELTA'; createdBy: string }): Promise<string> {
     const batch = await this.db.syncBatch.create({
       data: {

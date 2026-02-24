@@ -70,6 +70,15 @@ export interface UserRepositoryPort {
 
   createSyncBatch(data: { runType: 'MANUAL' | 'FULL' | 'DELTA'; createdBy: string }): Promise<string>; // returns batchId
 
+  /**
+   * Bulk-assign the LEADER role to a list of employeeIds.
+   * Returns counts of promoted, skipped (already LEADER), and notFound employees.
+   */
+  bulkEnsureLeaderRole(
+    employeeIds: string[],
+    assignedBy: string,
+  ): Promise<{ promoted: number; skipped: number; notFound: number }>;
+
   updateSyncBatch(
     batchId: string,
     data: {
