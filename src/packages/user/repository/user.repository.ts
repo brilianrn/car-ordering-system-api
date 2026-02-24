@@ -495,7 +495,6 @@ export class UserRepository implements UserRepositoryPort {
 
           // B: Employee Upsert
           const email = fullName.toLowerCase().replace(/\s+/g, '') + EMAIL_DOMAIN;
-          const isActive = (item.EMPLOYEE_STATUS ?? 'active').toLowerCase() === 'active';
 
           const existingEmp = await tx.employee.findUnique({
             where: { employeeId },
@@ -510,6 +509,7 @@ export class UserRepository implements UserRepositoryPort {
               email,
               orgUnitId: orgUnit.id,
               isActive: true, // Crucial per requirement
+              effectiveRoles: [Role.USER],
               effectiveFrom: new Date(),
               position: item.EMPLOYEE_POSITION ?? null,
               jobFamily: item.JOB_FAMILY ?? null,
@@ -523,6 +523,7 @@ export class UserRepository implements UserRepositoryPort {
               fullName,
               orgUnitId: orgUnit.id,
               isActive: true, // Crucial per requirement
+              effectiveRoles: { set: [Role.USER] },
               position: item.EMPLOYEE_POSITION ?? null,
               jobFamily: item.JOB_FAMILY ?? null,
               immediateSupervisor: item.IMMEDIATE_SUPERVISOR ?? null,
