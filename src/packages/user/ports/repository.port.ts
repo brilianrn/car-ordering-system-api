@@ -68,6 +68,20 @@ export interface UserRepositoryPort {
 
   // ─── SyncBatch lifecycle ─────────────────────────────────────────────────────
 
+  /** Process multiple employees atomically. Errors generate AuditSync entries. */
+  syncEmployeesTx(
+    rawEmployees: any[],
+    batchId: string,
+    actorId: string,
+  ): Promise<{
+    synced: number;
+    created: number;
+    updated: number;
+    accountsCreated: number;
+    failed: number;
+    errors: string[];
+  }>;
+
   createSyncBatch(data: { runType: 'MANUAL' | 'FULL' | 'DELTA'; createdBy: string }): Promise<string>; // returns batchId
 
   /**

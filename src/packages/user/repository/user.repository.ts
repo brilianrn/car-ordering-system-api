@@ -3,6 +3,7 @@ import { Pagination } from '@/shared/utils/rest-api/pagination';
 import { IPaginationResponse } from '@/shared/utils/rest-api/types';
 import { Injectable } from '@nestjs/common';
 import { Employee, PrismaClient, Role } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 import { ListUserQueryDto } from '../dto/list-user-query.dto';
 import { UserRepositoryPort } from '../ports/repository.port';
 
@@ -435,6 +436,189 @@ export class UserRepository implements UserRepositoryPort {
     }
 
     return result;
+  }
+
+  async syncEmployeesTx(
+    rawEmployees: any[],
+    batchId: string,
+    actorId: string,
+  ): Promise<{
+    synced: number;
+    created: number;
+    updated: number;
+    accountsCreated: number;
+    failed: number;
+    errors: string[];
+  }> {
+    const EMAIL_DOMAIN = '@dharma.cos.com';
+    const BCRYPT_ROUNDS = 10;
+
+    let created = 0;
+    let updated = 0;
+    let accountsCreated = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    const rbacUserRole = await this.db.rBACRole.findFirst({
+      where: { name: 'USER' },
+      select: { id: true },
+    });
+
+    for (const item of rawEmployees) {
+      const employeeId = item.EMPLOYEE_NO?.toString?.()?.trim() ?? '';
+      const fullName = (item.EMPLOYEE_NAME ?? '').trim();
+
+      if (!employeeId || !fullName) {
+        errors.push(`Skipped – missing EMPLOYEE_NO or EMPLOYEE_NAME: ${JSON.stringify(item)}`);
+        failed++;
+        continue;
+      }
+
+      try {
+        await this.db.$transaction(async (tx) => {
+          // A: Org Unit Upsert
+          const orgUnitCode = (item.ORGANIZATION_UNIT ?? '').trim() || 'UNKNOWN';
+          const orgUnit = await tx.organizationUnit.upsert({
+            where: { code: orgUnitCode },
+            create: {
+              code: orgUnitCode,
+              name: orgUnitCode,
+              type: 'DEPARTMENT',
+              createdBy: 'SYSTEM_SYNC',
+              updatedBy: actorId,
+            },
+            update: {
+              name: orgUnitCode,
+              updatedBy: actorId,
+            },
+          });
+
+          // B: Employee Upsert
+          const email = fullName.toLowerCase().replace(/\s+/g, '') + EMAIL_DOMAIN;
+          const isActive = (item.EMPLOYEE_STATUS ?? 'active').toLowerCase() === 'active';
+
+          const existingEmp = await tx.employee.findUnique({
+            where: { employeeId },
+            select: { id: true },
+          });
+
+          await tx.employee.upsert({
+            where: { employeeId },
+            create: {
+              employeeId,
+              fullName,
+              email,
+              orgUnitId: orgUnit.id,
+              isActive: true, // Crucial per requirement
+              effectiveFrom: new Date(),
+              position: item.EMPLOYEE_POSITION ?? null,
+              jobFamily: item.JOB_FAMILY ?? null,
+              immediateSupervisor: item.IMMEDIATE_SUPERVISOR ?? null,
+              immediateManager: item.IMMEDIATE_MANAGER ?? null,
+              userType: item.EMPLOYEE_TYPE ?? null,
+              createdBy: actorId,
+              updatedBy: actorId,
+            },
+            update: {
+              fullName,
+              orgUnitId: orgUnit.id,
+              isActive: true, // Crucial per requirement
+              position: item.EMPLOYEE_POSITION ?? null,
+              jobFamily: item.JOB_FAMILY ?? null,
+              immediateSupervisor: item.IMMEDIATE_SUPERVISOR ?? null,
+              immediateManager: item.IMMEDIATE_MANAGER ?? null,
+              userType: item.EMPLOYEE_TYPE ?? null,
+              updatedBy: actorId,
+            },
+          });
+
+          if (!existingEmp) created++;
+          else updated++;
+
+          // C: Account Creation (isVerified: true)
+          const existingAcc = await tx.account.findUnique({
+            where: { employeeId },
+            select: { id: true },
+          });
+
+          if (!existingAcc) {
+            const hashedPassword = await bcrypt.hash(employeeId, BCRYPT_ROUNDS);
+            await tx.account.create({
+              data: {
+                email,
+                password: hashedPassword,
+                employeeId,
+                isVerified: true,
+              },
+            });
+            accountsCreated++;
+          }
+
+          // D: Default Role Assignment
+          if (rbacUserRole) {
+            const existingUserRole = await tx.userRole.findFirst({
+              where: { employeeId, roleId: rbacUserRole.id },
+            });
+
+            if (!existingUserRole) {
+              await tx.userRole.create({
+                data: {
+                  employeeId,
+                  roleId: rbacUserRole.id,
+                  assignedBy: 'SYSTEM_SYNC',
+                  isActive: true,
+                },
+              });
+            } else {
+              await tx.userRole.update({
+                where: { id: existingUserRole.id },
+                data: { isActive: true, assignedBy: 'SYSTEM_SYNC' },
+              });
+            }
+
+            const empCurrent = await tx.employee.findUnique({
+              where: { employeeId },
+              select: { effectiveRoles: true },
+            });
+            if (empCurrent && !empCurrent.effectiveRoles.includes('USER')) {
+              await tx.employee.update({
+                where: { employeeId },
+                data: { effectiveRoles: { push: 'USER' } },
+              });
+            }
+          }
+        });
+      } catch (err) {
+        const msg = `${employeeId}: ${err instanceof Error ? err.message : String(err)}`;
+        errors.push(msg);
+        failed++;
+
+        // AuditSync Logging
+        try {
+          await this.db.auditSync.create({
+            data: {
+              batchId,
+              entityType: 'EMPLOYEE',
+              entityId: employeeId,
+              action: 'ERROR',
+              errorMessage: msg.substring(0, 500),
+              createdBy: actorId,
+            },
+          });
+        } catch (auditErr) {
+          // Ignore
+        }
+      }
+    }
+
+    return {
+      synced: rawEmployees.length,
+      created,
+      updated,
+      accountsCreated,
+      failed,
+      errors,
+    };
   }
 
   async createSyncBatch(data: { runType: 'MANUAL' | 'FULL' | 'DELTA'; createdBy: string }): Promise<string> {

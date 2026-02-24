@@ -3,7 +3,6 @@ import { IPaginationResponse, IUsecaseResponse } from '@/shared/utils/rest-api/t
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Employee } from '@prisma/client';
 import axios from 'axios';
-import * as bcrypt from 'bcryptjs';
 import * as ExcelJS from 'exceljs';
 import * as https from 'https';
 import { ListUserQueryDto } from '../dto/list-user-query.dto';
@@ -321,63 +320,16 @@ export class UserUseCase implements UserUsecasePort {
       stats.synced = rawEmployees.length;
       Logger.info(`Fetched ${rawEmployees.length} employees from HRIS`, 'UserUseCase.syncHr');
 
-      // 2. Process each employee atomically
-      for (const item of rawEmployees) {
-        const employeeId: string = item.EMPLOYEE_NO?.toString?.()?.trim() ?? '';
-        const fullName: string = (item.EMPLOYEE_NAME ?? '').trim();
+      // 2. Process all employees via transactional batch
+      const txStats = await this.repository.syncEmployeesTx(rawEmployees, batchId, actorId);
 
-        if (!employeeId || !fullName) {
-          const msg = `Skipped – missing EMPLOYEE_NO or EMPLOYEE_NAME: ${JSON.stringify(item)}`;
-          stats.errors.push(msg);
-          stats.failed++;
-          continue;
-        }
-
-        try {
-          // Generate email
-          const email = fullName.toLowerCase().replace(/\s+/g, '.') + EMAIL_DOMAIN;
-
-          // Resolve org unit (auto-create if missing)
-          const orgUnitCode: string = (item.ORGANIZATION_UNIT ?? '').trim() || 'UNKNOWN';
-          const orgUnitId = await this.repository.upsertOrganizationUnit(orgUnitCode, actorId);
-
-          // Upsert employee + account inside a managed flow
-          // (Each in its own try rather than one large $transaction to increase resilience)
-          const { isNew: isNewEmployee } = await this.repository.upsertEmployee({
-            employeeId,
-            fullName,
-            email,
-            orgUnitId,
-            isActive: (item.EMPLOYEE_STATUS ?? 'active').toLowerCase() === 'active',
-            position: item.EMPLOYEE_POSITION ?? null,
-            jobFamily: item.JOB_FAMILY ?? null,
-            immediateSupervisor: item.IMMEDIATE_SUPERVISOR ?? null,
-            immediateManager: item.IMMEDIATE_MANAGER ?? null,
-            userType: item.EMPLOYEE_TYPE ?? null,
-            createdBy: actorId,
-          });
-
-          isNewEmployee ? stats.created++ : stats.updated++;
-
-          // Upsert account (password = hashed NIK)
-          const hashedPassword = await bcrypt.hash(employeeId, BCRYPT_ROUNDS);
-          const { isNew: isNewAccount } = await this.repository.upsertAccount({
-            employeeId,
-            email,
-            hashedPassword,
-          });
-
-          if (isNewAccount) stats.accountsCreated++;
-
-          // Ensure USER role is linked
-          await this.repository.ensureUserRole(employeeId, actorId);
-        } catch (rowErr) {
-          const msg = `${employeeId}: ${rowErr instanceof Error ? rowErr.message : String(rowErr)}`;
-          Logger.warn(msg, 'UserUseCase.syncHr');
-          stats.errors.push(msg);
-          stats.failed++;
-        }
-      }
+      // Merge results
+      stats.synced = txStats.synced;
+      stats.created = txStats.created;
+      stats.updated = txStats.updated;
+      stats.accountsCreated = txStats.accountsCreated;
+      stats.failed = txStats.failed;
+      stats.errors = txStats.errors;
 
       // 3. Finalize batch record
       await this.repository.updateSyncBatch(batchId, {
@@ -399,7 +351,21 @@ export class UserUseCase implements UserUsecasePort {
 
       return { data: stats };
     } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown error during HRIS sync';
+      let msg = error instanceof Error ? error.message : 'Unknown error during HRIS sync';
+      let code = HttpStatus.INTERNAL_SERVER_ERROR;
+
+      if (axios.isAxiosError(error) || msg.includes('Failed to sync')) {
+        // Handle 401, 403, 500 or unreachable API
+        if (msg.includes('401') || msg.includes('Invalid or Missing')) {
+          code = HttpStatus.UNAUTHORIZED;
+        } else if (msg.includes('403')) {
+          code = HttpStatus.FORBIDDEN;
+        } else {
+          code = HttpStatus.SERVICE_UNAVAILABLE;
+          msg = `Service Unavailable: MSA API is unreachable. Details: ${msg}`;
+        }
+      }
+
       Logger.error(msg, error instanceof Error ? error.stack : undefined, 'UserUseCase.syncHr');
 
       await this.repository
@@ -411,13 +377,10 @@ export class UserUseCase implements UserUsecasePort {
         })
         .catch(() => {}); // best-effort
 
-      // Propagate 401 specifically as Unauthorized code if message matches
-      const isUnauthorized = msg.includes('Failed to sync: Invalid or Missing MSA API Key');
-
       return {
         error: {
           message: msg,
-          code: isUnauthorized ? HttpStatus.UNAUTHORIZED : HttpStatus.INTERNAL_SERVER_ERROR,
+          code,
         },
       };
     }
