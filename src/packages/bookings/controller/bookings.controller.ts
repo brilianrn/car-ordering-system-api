@@ -240,10 +240,17 @@ export class BookingsController implements BookingsControllerPort {
   async findTripDetail(
     @Param('id', ParseIntPipe) id: number,
     @Headers('x-user-id') userId: string,
+    @Req() req: any,
     @Res() res: Response,
   ) {
     try {
-      const result = await this.usecase.findTripDetail(id, userId);
+      const userRoles = req.user?.userRole || req.user?.roles || [];
+      const isSuperAdminOrGa = userRoles.some(
+        (role: any) =>
+          (role || role.role) === Role.ADMIN || (role || role.role) === Role.GA || (role || role.role) === 'FINANCE',
+      );
+
+      const result = await this.usecase.findTripDetail(id, isSuperAdminOrGa ? undefined : userId);
 
       if (result?.error) {
         const statusCode =

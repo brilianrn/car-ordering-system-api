@@ -380,12 +380,12 @@ export class FinanceUseCase implements FinanceUsecasePort {
       // 4. Guard: Anomaly Check
       if (segmentExecution.anomalyFlags && Object.keys(segmentExecution.anomalyFlags).length > 0) {
         if (!verificationHeader.anomalyHandled) {
-          return {
-            error: {
-              message: 'Cannot close trip. Anomaly flags detected and not yet handled by GA.',
-              code: HttpStatus.BAD_REQUEST,
-            },
-          };
+          // As per request, we allow closing the trip despite unhandled anomalies.
+          // We only log a warning here. Frontend will handle user warnings.
+          Logger.warn(
+            `Closing trip with unhandled anomaly flags for execution ID: ${executionId}`,
+            'FinanceUseCase.closeTrip',
+          );
         }
       }
 

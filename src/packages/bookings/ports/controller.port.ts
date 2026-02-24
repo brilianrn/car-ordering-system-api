@@ -26,5 +26,5 @@ export interface BookingsControllerPort {
 
   findOne(id: number, userId: string, res: Response): Promise<Response<ResponseREST<IBooking>>>;
 
-  findTripDetail(id: number, userId: string, res: Response): Promise<Response<ResponseREST<ITripDetail>>>;
+  findTripDetail(id: number, userId: string, req: any, res: Response): Promise<Response<ResponseREST<ITripDetail>>>;
 }
