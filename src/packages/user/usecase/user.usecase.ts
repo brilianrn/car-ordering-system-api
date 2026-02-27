@@ -18,10 +18,8 @@ import {
   UserUsecasePort,
 } from '../ports/usecase.port';
 
-const HRIS_BASE_URL = 'https://msa-be.dharmagroup.co.id';
-const HRIS_COMPANY = 'DPM';
-const EMAIL_DOMAIN = '@dharma.cos.com';
-const BCRYPT_ROUNDS = 10;
+const HRIS_BASE_URL = process.env.HRIS_BASE_URL || 'https://msa-be.dharmagroup.co.id';
+const HRIS_COMPANY = process.env.HRIS_COMPANY || 'DPM';
 const HTTP_TIMEOUT = 60_000; // 60 seconds per spec
 const MAX_RETRIES = 3;
 

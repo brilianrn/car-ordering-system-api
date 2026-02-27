@@ -2,6 +2,7 @@ import { clientDb } from '@/shared/utils';
 import { Pagination } from '@/shared/utils/rest-api/pagination';
 import { IPaginationResponse } from '@/shared/utils/rest-api/types';
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Employee, PrismaClient, Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { globalLogger as Logger } from '../../../shared/utils/logger';
@@ -11,6 +12,11 @@ import { UserRepositoryPort } from '../ports/repository.port';
 @Injectable()
 export class UserRepository implements UserRepositoryPort {
   private readonly db: PrismaClient = clientDb;
+  private readonly configService: ConfigService;
+
+  constructor(configService: ConfigService) {
+    this.configService = configService;
+  }
 
   // ─── Existing Methods ─────────────────────────────────────────────────────────
 
@@ -430,7 +436,7 @@ export class UserRepository implements UserRepositoryPort {
     failed: number;
     errors: string[];
   }> {
-    const EMAIL_DOMAIN = '@dharma.cos.com';
+    const EMAIL_DOMAIN = `@${this.configService.get<string>('ALLOWED_EMAIL_DOMAIN')}`;
     const BCRYPT_ROUNDS = 10;
 
     let created = 0;
@@ -474,7 +480,13 @@ export class UserRepository implements UserRepositoryPort {
           });
 
           // B: Employee Upsert
-          const email = fullName.toLowerCase().replace(/\s+/g, '') + EMAIL_DOMAIN;
+          // Email: [first].[last]@dp.dharmap.com (or just [name] if single word)
+          const nameParts = fullName.trim().split(/\s+/);
+          const emailLocalPart =
+            nameParts.length >= 2
+              ? `${nameParts[0]}.${nameParts[nameParts.length - 1]}`.toLowerCase()
+              : nameParts[0].toLowerCase();
+          const email = `${emailLocalPart}${EMAIL_DOMAIN}`;
 
           const existingEmp = await tx.employee.findUnique({
             where: { employeeId },
@@ -516,24 +528,22 @@ export class UserRepository implements UserRepositoryPort {
           if (!existingEmp) created++;
           else updated++;
 
-          // C: Account Creation (isVerified: true)
-          const existingAcc = await tx.account.findUnique({
+          // C: Account Upsert (isVerified: true; always sync email)
+          const hashedPassword = await bcrypt.hash(employeeId, BCRYPT_ROUNDS);
+          const accResult = await tx.account.upsert({
             where: { employeeId },
-            select: { id: true },
+            create: {
+              email,
+              password: hashedPassword,
+              employeeId,
+              isVerified: true,
+            },
+            update: {
+              email, // keep email in sync with generated pattern
+              isVerified: true,
+            },
           });
-
-          if (!existingAcc) {
-            const hashedPassword = await bcrypt.hash(employeeId, BCRYPT_ROUNDS);
-            await tx.account.create({
-              data: {
-                email,
-                password: hashedPassword,
-                employeeId,
-                isVerified: true,
-              },
-            });
-            accountsCreated++;
-          }
+          if (accResult) accountsCreated++;
 
           // D: Default Role Assignment
           if (rbacUserRole) {
