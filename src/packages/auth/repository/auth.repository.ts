@@ -72,6 +72,32 @@ export class AuthRepository implements AuthRepositoryPort {
   }
 
   /**
+   * Find account by email or NIK (employeeId)
+   */
+  async findAccountByIdentifier(
+    identifier: string,
+  ): Promise<(Account & { employee: Employee & { orgUnit: any } }) | null> {
+    try {
+      // Because employeeId is NOT the primary key of Account globally, we findFirst with OR
+      const res = await this.db.account.findFirst({
+        where: {
+          OR: [{ email: identifier }, { employeeId: identifier }],
+        },
+        include: {
+          employee: {
+            include: {
+              orgUnit: true,
+            },
+          },
+        },
+      });
+      return res;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
    * Create new account
    */
   async createAccount(data: {

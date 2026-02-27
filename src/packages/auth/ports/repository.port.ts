@@ -14,6 +14,13 @@ export interface AuthRepositoryPort {
     | null
   >;
 
+  findAccountByIdentifier(identifier: string): Promise<
+    | (Account & {
+        employee: Employee & { orgUnit: any };
+      })
+    | null
+  >;
+
   createAccount(data: {
     email: string;
     password: string;

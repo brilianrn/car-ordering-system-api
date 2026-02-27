@@ -22,11 +22,11 @@ export class AuthUseCase implements AuthUsecasePort {
 
   login = async (dto: LoginDto): Promise<IUsecaseResponse<ILoginResponse>> => {
     try {
-      const account = await this.repository.findAccountByEmail(dto.email);
+      const account = await this.repository.findAccountByIdentifier(dto.identifier);
       if (!account) {
         return {
           error: {
-            message: 'Invalid email or password',
+            message: 'Invalid credentials. Use NIK or Corporate Email.',
             code: HttpStatus.UNAUTHORIZED,
           },
         };
@@ -45,7 +45,7 @@ export class AuthUseCase implements AuthUsecasePort {
       if (!isPasswordValid) {
         return {
           error: {
-            message: 'Invalid email or password',
+            message: 'Invalid credentials. Use NIK or Corporate Email.',
             code: HttpStatus.UNAUTHORIZED,
           },
         };
