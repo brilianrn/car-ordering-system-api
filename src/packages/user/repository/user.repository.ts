@@ -4,6 +4,7 @@ import { IPaginationResponse } from '@/shared/utils/rest-api/types';
 import { Injectable } from '@nestjs/common';
 import { Employee, PrismaClient, Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { globalLogger as Logger } from '../../../shared/utils/logger';
 import { ListUserQueryDto } from '../dto/list-user-query.dto';
 import { UserRepositoryPort } from '../ports/repository.port';
 
@@ -383,17 +384,11 @@ export class UserRepository implements UserRepositoryPort {
   ): Promise<{ promoted: number; skipped: number; notFound: number }> {
     const result = { promoted: 0, skipped: 0, notFound: 0 };
 
-    // Look up the LEADER role from RBAC once, shared across all employees
-    const leaderRole = await this.db.rBACRole.findFirst({
-      where: { name: 'LEADER' },
-      select: { id: true },
-    });
-
-    if (!leaderRole) return result; // LEADER role doesn't exist in RBAC – nothing to do
+    Logger.info(`bulkEnsureLeaderRole called with ${employeeIds.length} ids`, 'UserRepository');
 
     for (const employeeId of employeeIds) {
       // 1. Verify employee exists
-      const employee = await this.db.employee.findUnique({
+      const employee = await this.db.employee.findFirst({
         where: { employeeId, deletedAt: null },
         select: { employeeId: true, effectiveRoles: true },
       });
@@ -403,37 +398,22 @@ export class UserRepository implements UserRepositoryPort {
         continue;
       }
 
-      // 2. Check if UserRole record already active for LEADER
-      const existingUserRole = await this.db.userRole.findFirst({
-        where: { employeeId, roleId: leaderRole.id, isActive: true },
-        select: { id: true },
-      });
-
-      if (existingUserRole) {
+      // 2. Skip if already a LEADER
+      if (employee.effectiveRoles.includes(Role.LEADER)) {
         result.skipped++;
         continue;
       }
 
-      // 3. Create UserRole entry
-      await this.db.userRole.create({
-        data: {
-          employeeId,
-          roleId: leaderRole.id,
-          assignedBy,
-          isActive: true,
-        },
+      // 3. Update effectiveRoles only – push LEADER into the array
+      await this.db.employee.update({
+        where: { employeeId },
+        data: { effectiveRoles: { push: Role.LEADER } },
       });
-
-      // 4. Sync Employee.effectiveRoles array if LEADER not already there
-      if (!employee.effectiveRoles.includes(Role.LEADER)) {
-        await this.db.employee.update({
-          where: { employeeId },
-          data: { effectiveRoles: { push: Role.LEADER } },
-        });
-      }
 
       result.promoted++;
     }
+
+    Logger.info(`bulkEnsureLeaderRole finished. result: ${JSON.stringify(result)}`, 'UserRepository');
 
     return result;
   }
