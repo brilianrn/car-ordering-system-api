@@ -384,13 +384,11 @@ export class BookingsUseCase implements BookingsUsecasePort {
           in: [BookingStatus.ASSIGNED, BookingStatus.MERGED],
         };
       } else if (query.bookingStatus) {
+        // Explicit status requested — use it as-is (DRAFT, SUBMITTED, etc.)
         where.bookingStatus = query.bookingStatus;
-      } else {
-        // Default: everything except DRAFT
-        where.bookingStatus = {
-          not: BookingStatus.DRAFT,
-        };
       }
+      // ✅ FIX: No default status filter — show ALL statuses for the user's own bookings,
+      //         including DRAFT and SUBMITTED per ownership. Admins/GA already see all anyway.
 
       // 3. User-based Filtering (Requester/Driver/Joiner)
       // IMPORTANT: If status is ASSIGNED (Trips), we only show Host bookings.
@@ -425,16 +423,13 @@ export class BookingsUseCase implements BookingsUsecasePort {
             },
           ];
         } else {
-          // Regular "My Bookings" or specific status view: show specifically what I requested
+          // Regular "My Bookings": show ALL statuses owned by me (DRAFT + SUBMITTED + rest)
           where.requesterId = effectiveRequesterId;
         }
       } else {
         // GA/Admin view: show all trips matching status.
         // For "Trips" (ASSIGNED), hide joiners (show only Hosts and Standalones).
         if (isTripsView) {
-          // Show if:
-          // 1. Not in a carpool (Standalone)
-          // 2. OR Is a Host of a carpool
           where.OR = [{ carpoolGroupId: null }, { hostCarpool: { isNot: null } }];
         }
       }
@@ -555,6 +550,19 @@ export class BookingsUseCase implements BookingsUsecasePort {
         }),
         this.repository.count(where),
       ]);
+
+      // ─── Execution Trace (debugging instrumentation) ────────────────────────
+      // Logs: who requested, how many rows found, and which statuses are present
+      const statusDistribution = data.reduce<Record<string, number>>((acc, b: any) => {
+        const s = b.bookingStatus ?? 'UNKNOWN';
+        acc[s] = (acc[s] || 0) + 1;
+        return acc;
+      }, {});
+      Logger.info(
+        `[findAll] requester NIK: ${effectiveRequesterId ?? 'ALL (GA/Admin)'} | found: ${data.length} / total: ${total} | statuses: ${JSON.stringify(statusDistribution)}`,
+        'BookingsUseCase.findAll',
+      );
+      // ────────────────────────────────────────────────────────────────────────
 
       // Transform S3 keys into presigned URLs if any vehicle/asset images are involved
       // Also calculate receipt summary for each booking
@@ -707,7 +715,9 @@ export class BookingsUseCase implements BookingsUsecasePort {
                     gaNote: item.gaNote,
                     createdAt: item.createdAt,
                     createdBy: item.createdBy,
-                    status: item.fundingSource ? 'VERIFIED' : 'IN_REVIEW',
+                    // ✅ FIX: Receipt items are always PENDING when first uploaded.
+                    // Status transitions to APPROVED/REJECTED ONLY via the Finance/GA verifyItem endpoint.
+                    status: 'IN_REVIEW',
                     ocrSnapshot: item.ocrSnapshot,
                   };
                 }),
@@ -1294,7 +1304,8 @@ export class BookingsUseCase implements BookingsUsecasePort {
         bookingWithPresignedUrls.segments.forEach((segment: any) => {
           if (segment.execution?.verification?.receiptItems) {
             segment.execution.verification.receiptItems.forEach((item: any) => {
-              item.status = item.fundingSource ? 'VERIFIED' : 'IN_REVIEW';
+              // ✅ FIX: Always PENDING — APPROVE/REJECT only via Finance verifyItem endpoint
+              item.status = 'IN_REVIEW';
             });
           }
         });
@@ -1530,7 +1541,9 @@ export class BookingsUseCase implements BookingsUsecasePort {
                     gaNote: item.gaNote,
                     createdAt: item.createdAt,
                     createdBy: item.createdBy,
-                    status: item.fundingSource ? 'VERIFIED' : 'IN_REVIEW',
+                    // ✅ FIX: Receipt items are always PENDING when first uploaded.
+                    // Status transitions to APPROVED/REJECTED ONLY via the Finance/GA verifyItem endpoint.
+                    status: 'IN_REVIEW',
                   };
                 }),
               );

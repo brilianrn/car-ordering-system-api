@@ -77,22 +77,23 @@ export class BookingsController implements BookingsControllerPort {
   }
 
   @Get(bookingRoute.list)
-  async findAll(
-    @Query() query: QueryBookingDto,
-    @Headers('x-user-id') userId: string,
-    @Req() req: any,
-    @Res() res: Response,
-  ) {
+  async findAll(@Query() query: QueryBookingDto, @Req() req: any, @Res() res: Response) {
     try {
+      // Pull NIK from JWT payload (employeeId). This is the correct identity –
+      // the Booking table stores requesterId as the Employee NIK, not an Account UUID.
+      const userId: string | undefined = req.user?.employeeId;
+
       // Check user roles from JWT payload
-      const userRoles = req.user?.userRole || req.user?.roles || [];
+      const userRoles: string[] = req.user?.roles || req.user?.userRole || [];
       const isSuperAdminOrGa = userRoles.some(
         (role: any) =>
-          (role || role.role) === Role.ADMIN || (role || role.role) === Role.GA || (role || role.role) === 'FINANCE',
+          role === Role.ADMIN ||
+          role === Role.GA ||
+          role === 'FINANCE' ||
+          (typeof role === 'object' && (role?.role === Role.ADMIN || role?.role === Role.GA)),
       );
 
       // Force ownership filter ONLY for non-admin/GA users
-      // If superadmin/GA explicitly requests a specific requesterId via query, usecase will handle it
       const requesterId = isSuperAdminOrGa ? undefined : userId;
 
       const result = await this.usecase.findAll(query, requesterId);
