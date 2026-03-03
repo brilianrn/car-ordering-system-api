@@ -125,5 +125,6 @@ export const paramSetRoute = {
 export const financeRoute = {
   base: '/finance',
   verifyItem: '/verify-item',
+  verifyBulk: '/verify-bulk',
   closeTrip: '/trip/:executionId/close',
 };

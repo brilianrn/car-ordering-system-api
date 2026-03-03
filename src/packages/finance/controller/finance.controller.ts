@@ -11,11 +11,12 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { CloseTripDto, VerifyItemDto } from '../dto';
+import { BulkVerifyDto, CloseTripDto, VerifyItemDto } from '../dto';
 import { FinanceUsecasePort } from '../ports/usecase.port';
 
 @Controller(`${ERoutes.BOOKINGS}${financeRoute.base}`)
@@ -102,6 +103,48 @@ export class FinanceController {
         error instanceof Error ? error.message : 'Error in closeTrip',
         error instanceof Error ? error.stack : undefined,
         'FinanceController.closeTrip',
+      );
+      return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
+        message: (error instanceof Error ? error.message : undefined) || validationMessage()[500](),
+      });
+    }
+  }
+
+  @Post(financeRoute.verifyBulk)
+  async verifyBulk(@Body() dto: BulkVerifyDto, @Req() req: any, @Res() res: Response) {
+    try {
+      // Read NIK from JWT payload (same pattern as bookings controller)
+      const userId: string = req.user?.employeeId || req.user?.sub || '';
+
+      if (!userId) {
+        return response[HttpStatus.UNAUTHORIZED](res, {
+          message: 'User authentication required',
+        });
+      }
+
+      const result = await this.usecase.bulkVerify(dto, userId);
+
+      if (result?.error) {
+        const statusCode =
+          result.error.code === 404
+            ? HttpStatus.NOT_FOUND
+            : result.error.code === 403
+              ? HttpStatus.FORBIDDEN
+              : HttpStatus.BAD_REQUEST;
+        return response[statusCode](res, {
+          message: result?.error?.message || validationMessage()[500](),
+        });
+      }
+
+      return response[HttpStatus.OK](res, {
+        message: 'Bulk verification completed successfully',
+        data: result?.data,
+      });
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in verifyBulk',
+        error instanceof Error ? error.stack : undefined,
+        'FinanceController.verifyBulk',
       );
       return response[HttpStatus.INTERNAL_SERVER_ERROR](res, {
         message: (error instanceof Error ? error.message : undefined) || validationMessage()[500](),

@@ -6,6 +6,7 @@ import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { BookingStatus, FundingSource, Prisma, RealtimeStatus, VerifyStatus } from '@prisma/client';
 import { IFinanceReceiptItem } from '../domain/entities';
 import { ICloseTripResponse, IVerifyItemResponse } from '../domain/response';
+import { BulkVerifyDto } from '../dto/bulk-verify.dto';
 import { CloseTripDto } from '../dto/close-trip.dto';
 import { VerificationAction, VerifyItemDto } from '../dto/verify-item.dto';
 import { FinanceRepositoryPort } from '../ports/repository.port';
@@ -569,6 +570,105 @@ export class FinanceUseCase implements FinanceUsecasePort {
       return {
         error: {
           message: error instanceof Error ? error.message : 'Failed to close trip',
+          code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      };
+    }
+  };
+
+  /**
+   * Bulk approve all receipt items under a VerificationHeader and finalize the header.
+   * Wrapped in a Prisma $transaction for atomicity.
+   */
+  bulkVerify = async (dto: BulkVerifyDto, userId: string): Promise<IUsecaseResponse<any>> => {
+    try {
+      // 1. Load the verification header (idempotency check)
+      const verificationHeader = await this.db.verificationHeader.findUnique({
+        where: { id: dto.verificationHeaderId },
+        include: {
+          receiptItems: { where: { deletedAt: null } },
+          segmentExecution: {
+            include: {
+              segment: {
+                include: { booking: { select: { id: true, bookingStatus: true } } },
+              },
+            },
+          },
+        },
+      });
+
+      if (!verificationHeader) {
+        return {
+          error: {
+            message: `Verification header ID ${dto.verificationHeaderId} not found`,
+            code: HttpStatus.NOT_FOUND,
+          },
+        };
+      }
+
+      // 2. Idempotency guard: reject if already completed
+      if (verificationHeader.verifyStatus === VerifyStatus.VERIFIED) {
+        return {
+          error: {
+            message: 'Verification already completed. Cannot bulk verify again.',
+            code: HttpStatus.BAD_REQUEST,
+          },
+        };
+      }
+
+      Logger.info(
+        `[bulkVerify] Starting bulk verify for header ${dto.verificationHeaderId} with ${verificationHeader.receiptItems.length} items`,
+        'FinanceUseCase.bulkVerify',
+      );
+
+      // 3. Atomic transaction: update all items + header in one shot
+      const now = new Date();
+      const updatedHeader = await this.db.$transaction(async (tx) => {
+        // 3a. Mark every receipt item as VERIFIED via gaNote (ReceiptItem has no status column – use gaNote flag)
+        if (verificationHeader.receiptItems.length > 0) {
+          await tx.receiptItem.updateMany({
+            where: {
+              verifyId: dto.verificationHeaderId,
+              deletedAt: null,
+            },
+            data: {
+              gaNote: `APPROVED by ${userId} at ${now.toISOString()}`,
+              updatedBy: userId,
+            },
+          });
+        }
+
+        // 3b. Close the VerificationHeader
+        const header = await tx.verificationHeader.update({
+          where: { id: dto.verificationHeaderId },
+          data: {
+            verifyStatus: VerifyStatus.VERIFIED,
+            verifiedAt: now,
+            reimburseTicket: dto.reimburseTicket ?? null,
+            replenishTicket: dto.replenishTicket ?? null,
+            updatedBy: userId,
+          },
+          include: { receiptItems: true },
+        });
+
+        return header;
+      });
+
+      Logger.info(
+        `[bulkVerify] SUCCESS - header ${dto.verificationHeaderId} marked VERIFIED`,
+        'FinanceUseCase.bulkVerify',
+      );
+
+      return { data: updatedHeader };
+    } catch (error) {
+      Logger.error(
+        error instanceof Error ? error.message : 'Error in bulkVerify',
+        error instanceof Error ? error.stack : undefined,
+        'FinanceUseCase.bulkVerify',
+      );
+      return {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to bulk verify receipts',
           code: HttpStatus.INTERNAL_SERVER_ERROR,
         },
       };
