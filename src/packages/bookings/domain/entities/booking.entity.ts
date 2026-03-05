@@ -1,6 +1,6 @@
-import { ApprovalHeader, Booking, BookingSegment, Category, Employee, Vehicle, Assignment } from '@prisma/client';
-import { IVehicleWithImages, IVehicleWithPresignedUrls } from './vehicle.entity';
+import { ApprovalHeader, Assignment, Booking, BookingSegment, Category, Vehicle } from '@prisma/client';
 import { IVehicleImage } from './vehicle-image.entity';
+import { IVehicleWithImages, IVehicleWithPresignedUrls } from './vehicle.entity';
 
 /**
  * Booking Category Entity
@@ -49,6 +49,7 @@ export interface IBookingWithRelations extends Booking {
   segments?: IBookingSegment[];
   approvalHeader?: IApprovalHeaderWithApprover | null;
   requester?: IEmployeeInfo | null;
+  passengers?: IEmployeeInfo[] | null;
   vehicle?: IVehicleWithImages | null;
   assignment?: IAssignmentWithVehicle | null;
 }

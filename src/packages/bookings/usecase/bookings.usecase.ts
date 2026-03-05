@@ -191,6 +191,7 @@ export class BookingsUseCase implements BookingsUsecasePort {
         createdBy: userId,
         ...(passengerIds && { passengerIds: passengerIds as Prisma.InputJsonValue }),
         ...(passengerNames && { passengerNames: passengerNames as Prisma.InputJsonValue }),
+        ...(createDto.manualApproverId && { manualApproverId: createDto.manualApproverId }),
         ...(createDto.vehicleId && {
           vehicle: {
             connect: { id: createDto.vehicleId },
@@ -996,6 +997,10 @@ export class BookingsUseCase implements BookingsUsecasePort {
         updateData.resourceMode = updateDto.resourceMode;
       }
 
+      if (updateDto.manualApproverId !== undefined) {
+        updateData.manualApproverId = updateDto.manualApproverId || null;
+      }
+
       // Handle bookingStatus update based on isDraft flag
       if (updateDto.isDraft !== undefined) {
         if (updateDto.isDraft === false) {
@@ -1298,6 +1303,33 @@ export class BookingsUseCase implements BookingsUsecasePort {
 
       // Transform S3 keys into presigned URLs for vehicle images
       const bookingWithPresignedUrls = await transformBookingWithPresignedUrls(booking, this.s3Service);
+
+      // Fetch full passenger info for frontend display
+      if (booking.passengerIds && Array.isArray(booking.passengerIds) && booking.passengerIds.length > 0) {
+        const passengerEmployees = await this.db.employee.findMany({
+          where: { employeeId: { in: booking.passengerIds as string[] } },
+          select: { employeeId: true, fullName: true, email: true, orgUnit: { select: { name: true } } },
+        });
+
+        const passengers = passengerEmployees.map((emp) => ({
+          employeeId: emp.employeeId,
+          fullName: emp.fullName,
+          email: emp.email || '',
+          orgUnit: emp.orgUnit,
+        }));
+        (bookingWithPresignedUrls as any).passengers = passengers;
+      }
+
+      // Fetch direct approver info if manualApproverId exists (useful for draft edit flow)
+      if (booking.manualApproverId) {
+        const approverEmp = await this.db.employee.findUnique({
+          where: { employeeId: booking.manualApproverId },
+          select: { employeeId: true, fullName: true, email: true },
+        });
+        if (approverEmp) {
+          (bookingWithPresignedUrls as any).directApprover = approverEmp;
+        }
+      }
 
       // Manual mapping: Add computed status to receipt items in segments (if any)
       if (bookingWithPresignedUrls?.segments) {
