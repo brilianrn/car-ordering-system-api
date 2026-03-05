@@ -31,7 +31,7 @@ import { BookingsUsecasePort } from '../ports/usecase.port';
 
 @Controller(ERoutes.BOOKINGS)
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.USER, Role.DRIVER, Role.GA, Role.ADMIN)
+@Roles(Role.USER, Role.DRIVER, Role.GA, Role.FINANCE, Role.ADMIN)
 export class BookingsController implements BookingsControllerPort {
   constructor(
     @Inject('BookingsUsecasePort')
