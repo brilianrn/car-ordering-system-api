@@ -33,11 +33,9 @@ export interface IReceiptItem {
   amountIdr: number;
   receiptDate: Date;
   photoUrl: string; // Presigned URL
-  fundingSource: string;
-  gaNote: string | null;
-  createdAt: Date;
-  createdBy: string;
-  status?: string; // VERIFIED, IN_REVIEW, REJECTED
+  fundingSource: string | null;
+  rejectionReason: string | null;
+  status?: string; // PENDING, APPROVED, REJECTED
   ocrSnapshot?: any; // Optional, for audit/detail
 }
 

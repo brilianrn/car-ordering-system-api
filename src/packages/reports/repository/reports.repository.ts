@@ -1,17 +1,17 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import Redis from 'ioredis';
 import { clientDb } from '../../../shared/utils';
 import {
-    AuditEvent,
-    ChartData,
-    CostMetrics,
-    FinancialPipeline,
-    RecapData,
-    ReportFilters,
-    SLAMetrics,
-    UserContext,
-    UtilizationMetrics,
+  AuditEvent,
+  ChartData,
+  CostMetrics,
+  FinancialPipeline,
+  RecapData,
+  ReportFilters,
+  SLAMetrics,
+  UserContext,
+  UtilizationMetrics,
 } from '../domain/types';
 import { ReportsRepositoryPort } from '../ports/repository.port';
 
@@ -32,12 +32,16 @@ export class ReportsRepository implements ReportsRepositoryPort {
 
     if (!employee) return null;
 
+    const hasOrgWideAccess = employee.effectiveRoles.some((role) =>
+      ['FINANCE', 'MANAGEMENT', 'ADMIN', 'AUDITOR', 'GA'].includes(role.toUpperCase()),
+    );
+
     return {
       userId,
       employeeId: employee.employeeId,
-      plant: employee.orgUnit.code.split('-')[0], // Extract plant from org code
+      plant: hasOrgWideAccess ? undefined : employee.orgUnit.code.split('-')[0], // Extract plant from org code
       orgUnitId: employee.orgUnitId,
-      orgUnitCode: employee.orgUnit.code,
+      orgUnitCode: hasOrgWideAccess ? undefined : employee.orgUnit.code,
       roles: employee.effectiveRoles,
       timezone: 'Asia/Jakarta',
     };
@@ -539,186 +543,155 @@ export class ReportsRepository implements ReportsRepositoryPort {
     },
   ): Promise<RecapData> {
     const offset = (pagination.page - 1) * pagination.limit;
-    const sortOrder = pagination.sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-    // Escape search term for SQL LIKE
-    const searchTerm = pagination.search
-      ? pagination.search.replace(/'/g, "''").replace(/%/g, '\\%').replace(/_/g, '\\_')
-      : null;
-    const searchPattern = searchTerm ? `%${searchTerm}%` : null;
+    // Build org-scoping filter safely (undefined means no restriction)
+    const orgFilter: any = {
+      requester: {
+        orgUnit: user.orgUnitCode
+          ? { code: user.orgUnitCode }
+          : user.plant
+            ? { code: { startsWith: user.plant } }
+            : undefined,
+      },
+    };
 
-    // --- SOLUSI ERROR 42601: Bungkus variabel struktur dengan Prisma.raw ---
-    const sqlSortOrder = Prisma.raw(sortOrder);
-    const sqlLimit = Prisma.raw(pagination.limit.toString());
-    const sqlOffset = Prisma.raw(offset.toString());
+    // Search filter
+    const searchWhere = pagination.search
+      ? {
+          OR: [
+            { bookingNumber: { contains: pagination.search, mode: 'insensitive' as const } },
+            { category: { name: { contains: pagination.search, mode: 'insensitive' as const } } },
+            {
+              assignment: {
+                driverChosen: {
+                  fullName: { contains: pagination.search, mode: 'insensitive' as const },
+                },
+              },
+            },
+            {
+              assignment: {
+                vehicleChosen: {
+                  licensePlate: { contains: pagination.search, mode: 'insensitive' as const },
+                },
+              },
+            },
+          ],
+        }
+      : {};
 
-    const dataQuery = searchPattern
-      ? this.db.$queryRaw`
-        SELECT 
-          b.id as booking_id_internal,
-          b.booking_number as booking_id,
-          MAX(vh.reimburse_ticket) as doc_number,
-          c.name as category,
-          SUBSTRING(ou.code, 1, 3) as plant,
-          ou.code as org_unit,
-          b.resource_mode as trip_mode,
-          b.start_at,
-          b.end_at,
-          COALESCE(SUM(se.odo_distance), 0) as distance,
-          COALESCE(SUM(ri.amount_idr), 0) as cost,
-          MAX(vh.verify_status) as status,
-          MAX(EXTRACT(DAY FROM NOW() - COALESCE(vh.verified_at, b.submitted_at))) as aging_days,
-          MAX(d.full_name) as driver_name,
-          MAX(d.driver_type) as driver_type,
-          MAX(v.license_plate) as license_plate
-        FROM booking b
-        JOIN category c ON b.category_id = c.id
-        JOIN employee e ON b.requester_id = e.employee_id
-        JOIN organization_unit ou ON e.org_unit_id = ou.id
-        LEFT JOIN assignment a ON b.id = a.booking_id
-        LEFT JOIN driver d ON a.driver_chosen_id = d.id
-        LEFT JOIN vehicle v ON a.vehicle_chosen_id = v.id
-        LEFT JOIN booking_segment bs ON b.id = bs.booking_id
-        LEFT JOIN segment_execution se ON bs.id = se.segment_id
-        LEFT JOIN verification_header vh ON se.id = vh.segment_execution_id
-        LEFT JOIN receipt_item ri ON vh.id = ri.verify_id
-        WHERE (${user.plant}::text IS NULL OR ou.code LIKE ${user.plant + '%'})
-          AND (${user.orgUnitCode}::text IS NULL OR ou.code = ${user.orgUnitCode})
-          AND b.start_at >= ${filters.startDate}
-          AND b.start_at <= ${filters.endDate}
-          AND (b.booking_number ILIKE ${searchPattern} OR c.name ILIKE ${searchPattern} OR d.full_name ILIKE ${searchPattern} OR v.license_plate ILIKE ${searchPattern})
-        GROUP BY b.id, b.booking_number, c.name, ou.code, b.resource_mode, 
-                 b.start_at, b.end_at, b.submitted_at
-        ORDER BY b.start_at ${sqlSortOrder}
-        LIMIT ${sqlLimit} OFFSET ${sqlOffset}
-      `
-      : this.db.$queryRaw`
-        SELECT 
-          b.id as booking_id_internal,
-          b.booking_number as booking_id,
-          MAX(vh.reimburse_ticket) as doc_number,
-          c.name as category,
-          SUBSTRING(ou.code, 1, 3) as plant,
-          ou.code as org_unit,
-          b.resource_mode as trip_mode,
-          b.start_at,
-          b.end_at,
-          COALESCE(SUM(se.odo_distance), 0) as distance,
-          COALESCE(SUM(ri.amount_idr), 0) as cost,
-          MAX(vh.verify_status) as status,
-          MAX(EXTRACT(DAY FROM NOW() - COALESCE(vh.verified_at, b.submitted_at))) as aging_days,
-          MAX(d.full_name) as driver_name,
-          MAX(d.driver_type) as driver_type,
-          MAX(v.license_plate) as license_plate
-        FROM booking b
-        JOIN category c ON b.category_id = c.id
-        JOIN employee e ON b.requester_id = e.employee_id
-        JOIN organization_unit ou ON e.org_unit_id = ou.id
-        LEFT JOIN assignment a ON b.id = a.booking_id
-        LEFT JOIN driver d ON a.driver_chosen_id = d.id
-        LEFT JOIN vehicle v ON a.vehicle_chosen_id = v.id
-        LEFT JOIN booking_segment bs ON b.id = bs.booking_id
-        LEFT JOIN segment_execution se ON bs.id = se.segment_id
-        LEFT JOIN verification_header vh ON se.id = vh.segment_execution_id
-        LEFT JOIN receipt_item ri ON vh.id = ri.verify_id
-        WHERE (${user.plant}::text IS NULL OR ou.code LIKE ${user.plant + '%'})
-          AND (${user.orgUnitCode}::text IS NULL OR ou.code = ${user.orgUnitCode})
-          AND b.start_at >= ${filters.startDate}
-          AND b.start_at <= ${filters.endDate}
-        GROUP BY b.id, b.booking_number, c.name, ou.code, b.resource_mode, 
-                 b.start_at, b.end_at, b.submitted_at
-        ORDER BY b.start_at ${sqlSortOrder}
-        LIMIT ${sqlLimit} OFFSET ${sqlOffset}
-      `;
+    const where: any = {
+      ...orgFilter,
+      ...searchWhere,
+      bookingStatus: 'FINISHED',
+      startAt: { gte: filters.startDate, lte: filters.endDate },
+    };
 
-    const countQuery = searchPattern
-      ? this.db.$queryRaw`
-        SELECT COUNT(DISTINCT b.id) as total
-        FROM booking b
-        JOIN category c ON b.category_id = c.id
-        JOIN employee e ON b.requester_id = e.employee_id
-        JOIN organization_unit ou ON e.org_unit_id = ou.id
-        LEFT JOIN assignment a ON b.id = a.booking_id
-        LEFT JOIN driver d ON a.driver_chosen_id = d.id
-        LEFT JOIN vehicle v ON a.vehicle_chosen_id = v.id
-        WHERE (${user.plant}::text IS NULL OR ou.code LIKE ${user.plant + '%'})
-          AND (${user.orgUnitCode}::text IS NULL OR ou.code = ${user.orgUnitCode})
-          AND b.start_at >= ${filters.startDate}
-          AND b.start_at <= ${filters.endDate}
-          AND (b.booking_number ILIKE ${searchPattern} OR c.name ILIKE ${searchPattern} OR d.full_name ILIKE ${searchPattern} OR v.license_plate ILIKE ${searchPattern})
-      `
-      : this.db.$queryRaw`
-        SELECT COUNT(DISTINCT b.id) as total
-        FROM booking b
-        JOIN category c ON b.category_id = c.id
-        JOIN employee e ON b.requester_id = e.employee_id
-        JOIN organization_unit ou ON e.org_unit_id = ou.id
-        LEFT JOIN assignment a ON b.id = a.booking_id
-        LEFT JOIN driver d ON a.driver_chosen_id = d.id
-        LEFT JOIN vehicle v ON a.vehicle_chosen_id = v.id
-        WHERE (${user.plant}::text IS NULL OR ou.code LIKE ${user.plant + '%'})
-          AND (${user.orgUnitCode}::text IS NULL OR ou.code = ${user.orgUnitCode})
-          AND b.start_at >= ${filters.startDate}
-          AND b.start_at <= ${filters.endDate}
-      `;
+    const [bookings, total] = await Promise.all([
+      this.db.booking.findMany({
+        where,
+        skip: offset,
+        take: pagination.limit,
+        orderBy: { startAt: pagination.sortOrder.toLowerCase() === 'asc' ? 'asc' : 'desc' },
+        include: {
+          category: { select: { name: true } },
+          requester: { include: { orgUnit: true } },
+          assignment: {
+            include: {
+              driverChosen: { select: { fullName: true, driverType: true } },
+              vehicleChosen: { select: { licensePlate: true } },
+            },
+          },
+          segments: {
+            include: {
+              execution: {
+                include: {
+                  verification: {
+                    include: { receiptItems: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }) as Promise<any[]>,
+      this.db.booking.count({ where }),
+    ]);
 
-    const [data, totalCount] = (await Promise.all([dataQuery, countQuery])) as [any[], any[]];
+    const data = (bookings as any[]).map((b: any) => {
+      const orgCode = b.requester?.orgUnit?.code || '';
+      const plant = orgCode.substring(0, 3);
 
-    const bookingIds = data.map((item) => item.booking_id_internal);
-    const costByCategoryData =
-      bookingIds.length > 0
-        ? ((await this.db.$queryRaw`
-        SELECT 
-          b.id as booking_id,
-          ri.category as cost_category,
-          SUM(ri.amount_idr) as amount
-        FROM booking b
-        JOIN booking_segment bs ON b.id = bs.booking_id
-        JOIN segment_execution se ON bs.id = se.segment_id
-        JOIN verification_header vh ON se.id = vh.segment_execution_id
-        JOIN receipt_item ri ON vh.id = ri.verify_id
-        WHERE b.id = ANY(${bookingIds}::int[])
-          AND vh.verify_status = 'VERIFIED'
-        GROUP BY b.id, ri.category
-      `) as any[])
-        : [];
+      let totalDistance = 0;
+      let totalCost = 0;
+      let verifyStatus: string | undefined;
+      let lastActivityAt: Date | undefined;
+      let driverName: string | undefined;
+      let driverType: string | undefined;
+      let licensePlate: string | undefined;
+      let docNumber: string | undefined;
+      const costByCategoryMap: Map<string, number> = new Map();
 
-    const costByCategoryMap = new Map<number, Array<{ category: string; amount: number }>>();
-    costByCategoryData.forEach((item) => {
-      if (!costByCategoryMap.has(item.booking_id)) {
-        costByCategoryMap.set(item.booking_id, []);
+      if (b.assignment) {
+        driverName = b.assignment.driverChosen?.fullName;
+        driverType = b.assignment.driverChosen?.driverType;
+        licensePlate = b.assignment.vehicleChosen?.licensePlate;
       }
-      costByCategoryMap.get(item.booking_id)?.push({
-        category: item.cost_category,
-        amount: Number(item.amount),
-      });
+
+      for (const seg of b.segments || []) {
+        if (seg.execution) {
+          const exec = seg.execution;
+          totalDistance += Number(exec.odoDistance || 0);
+
+          const vh = exec.verification || exec.verificationHeader;
+          if (vh) {
+            verifyStatus = vh.verifyStatus || verifyStatus;
+            lastActivityAt = vh.verifiedAt || lastActivityAt;
+            docNumber = vh.reimburseTicket || docNumber;
+
+            for (const ri of vh.receiptItems || []) {
+              const cost = Number(ri.amountIdr || 0);
+              const cat = ri.category || 'OTHER';
+              totalCost += cost;
+              costByCategoryMap.set(cat, (costByCategoryMap.get(cat) || 0) + cost);
+            }
+          }
+        }
+      }
+
+      const agingFrom = lastActivityAt || b.submittedAt || b.createdAt;
+      const agingDays = (Date.now() - new Date(agingFrom).getTime()) / (1000 * 60 * 60 * 24);
+
+      return {
+        bookingId: b.bookingNumber,
+        bookingIdInternal: b.id,
+        docNumber,
+        category: b.category?.name || '',
+        plant,
+        orgUnit: orgCode,
+        tripMode: b.resourceMode,
+        startDate: b.startAt,
+        endDate: b.endAt,
+        distance: totalDistance,
+        cost: totalCost,
+        status: verifyStatus || b.bookingStatus,
+        agingDays,
+        driverName,
+        driverType,
+        licensePlate,
+        costByCategory: Array.from(costByCategoryMap.entries()).map(([category, amount]) => ({
+          category,
+          amount,
+        })),
+      };
     });
 
     return {
-      data: data.map((item) => ({
-        bookingId: item.booking_id,
-        bookingIdInternal: item.booking_id_internal,
-        docNumber: item.doc_number ?? undefined,
-        category: item.category,
-        plant: item.plant,
-        orgUnit: item.org_unit,
-        tripMode: item.trip_mode,
-        startDate: new Date(item.start_at),
-        endDate: new Date(item.end_at),
-        distance: Number(item.distance),
-        cost: Number(item.cost),
-        status: item.status || 'DRAFT',
-        agingDays: Number(item.aging_days || 0),
-        driverName: item.driver_name || undefined,
-        driverType: item.driver_type || undefined,
-        licensePlate: item.license_plate || undefined,
-        costByCategory: costByCategoryMap.get(item.booking_id_internal) || [],
-      })),
+      data,
       pagination: {
         page: pagination.page,
         limit: pagination.limit,
-        total: Number(totalCount[0]?.total || 0),
-        totalPages: Math.ceil(Number(totalCount[0]?.total || 0) / pagination.limit),
+        total,
+        totalPages: Math.ceil(total / pagination.limit),
       },
     };
   }

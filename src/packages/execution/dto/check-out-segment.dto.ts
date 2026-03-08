@@ -1,5 +1,5 @@
-import { IsNotEmpty, IsNumber, IsOptional, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CheckOutSegmentDto {
   @IsNumber()
@@ -13,4 +13,8 @@ export class CheckOutSegmentDto {
   @Type(() => Number)
   @Min(0)
   gpsDistance?: number; // GPS distance (km) - optional
+
+  @IsString()
+  @IsNotEmpty()
+  odometerImageUrl: string;
 }

@@ -1,4 +1,4 @@
-import { FundingSource } from '@prisma/client';
+import { FundingSource, ReceiptStatus } from '@prisma/client';
 import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 
 export enum VerificationAction {
@@ -12,9 +12,9 @@ export class VerifyItemDto {
   @IsNotEmpty()
   itemId: number; // ID resi yang diunggah (ReceiptItem ID)
 
+  @IsOptional()
   @IsEnum(FundingSource)
-  @IsNotEmpty()
-  sourceFund: FundingSource; // Cash Driver, Mode-B/Pribadi, Vendor, Operasional
+  sourceFund?: FundingSource; // Cash Driver, Mode-B/Pribadi, Vendor, Operasional
 
   @IsEnum(VerificationAction)
   @IsNotEmpty()
@@ -22,6 +22,29 @@ export class VerifyItemDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(10, { message: 'Notes must be at least 10 characters when action is REJECT or EDIT' })
-  notes?: string; // Wajib diisi jika status Reject atau Edit (minimal 10 karakter)
+  notes?: string; // Internal notes
+
+  @IsOptional()
+  @IsString()
+  @MinLength(5, { message: 'Rejection reason must be at least 5 characters' })
+  rejectionReason?: string; // Alasan penolakan untuk driver
+
+  @IsOptional()
+  @IsEnum(ReceiptStatus)
+  status?: ReceiptStatus; // PENDING, APPROVED, REJECTED (Frontend sends this)
+
+  @IsOptional()
+  @IsInt()
+  amountIdr?: number; // Revisi nominal
+
+  @IsOptional()
+  @IsString()
+  category?: string; // Revisi kategori
+
+  @IsOptional()
+  @IsEnum(FundingSource)
+  defaultFundingSource?: FundingSource; // Default fallback if sourceFund is empty
+
+  @IsOptional()
+  receiptDate?: Date; // Revisi tanggal
 }

@@ -22,9 +22,9 @@ export class UploadReceiptDto {
   @IsNotEmpty()
   photoUrl: string; // URL of receipt photo (after upload) - S3 key or presigned URL
 
+  @IsOptional()
   @IsEnum(FundingSource)
-  @IsNotEmpty()
-  fundingSource: FundingSource; // DRIVER_CASH, MODE_B, VENDOR, OPERATIONAL
+  fundingSource?: FundingSource; // DRIVER_CASH, MODE_B, VENDOR, OPERATIONAL
 
   @IsOptional()
   @IsString()

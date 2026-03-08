@@ -713,12 +713,8 @@ export class BookingsUseCase implements BookingsUsecasePort {
                     receiptDate: item.receiptDate,
                     photoUrl: presignedPhotoUrl,
                     fundingSource: item.fundingSource,
-                    gaNote: item.gaNote,
-                    createdAt: item.createdAt,
-                    createdBy: item.createdBy,
-                    // ✅ FIX: Receipt items are always PENDING when first uploaded.
-                    // Status transitions to APPROVED/REJECTED ONLY via the Finance/GA verifyItem endpoint.
-                    status: 'IN_REVIEW',
+                    rejectionReason: item.rejectionReason,
+                    status: item.status,
                     ocrSnapshot: item.ocrSnapshot,
                   };
                 }),
@@ -1570,12 +1566,8 @@ export class BookingsUseCase implements BookingsUsecasePort {
                     receiptDate: item.receiptDate,
                     photoUrl: presignedPhotoUrl,
                     fundingSource: item.fundingSource,
-                    gaNote: item.gaNote,
-                    createdAt: item.createdAt,
-                    createdBy: item.createdBy,
-                    // ✅ FIX: Receipt items are always PENDING when first uploaded.
-                    // Status transitions to APPROVED/REJECTED ONLY via the Finance/GA verifyItem endpoint.
-                    status: 'IN_REVIEW',
+                    rejectionReason: item.rejectionReason,
+                    status: item.status,
                   };
                 }),
               );

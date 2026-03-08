@@ -477,24 +477,26 @@ model SuratJalan {
 }
 
 model SegmentExecution {
-  id           Int                 @id @default(autoincrement())
-  segmentId    Int                 @unique @map("segment_id")
-  status       String              @default("NotStarted") @map("status")
-  checkInAt    DateTime?           @map("check_in_at")
-  checkOutAt   DateTime?           @map("check_out_at")
-  odoStart     Float?              @map("odo_start")
-  odoEnd       Float?              @map("odo_end")
-  odoDistance  Float?              @map("odo_distance")
-  gpsDistance  Float?              @map("gps_distance")
-  anomalyFlags Json?               @map("anomaly_flags")
-  createdAt    DateTime            @default(now()) @map("created_at")
-  createdBy    String              @map("created_by")
-  updatedAt    DateTime            @updatedAt @map("updated_at")
-  updatedBy    String?             @map("updated_by")
-  deletedAt    DateTime?           @map("deleted_at")
-  deletedBy    String?             @map("deleted_by")
-  segment      BookingSegment      @relation(fields: [segmentId], references: [id])
-  verification VerificationHeader?
+  id               Int                 @id @default(autoincrement())
+  segmentId        Int                 @unique @map("segment_id")
+  status           String              @default("NotStarted") @map("status")
+  checkInAt        DateTime?           @map("check_in_at")
+  checkOutAt       DateTime?           @map("check_out_at")
+  odoStart         Float?              @map("odo_start")
+  odoEnd           Float?              @map("odo_end")
+  odoStartImageUrl String?             @map("odo_start_image_url")
+  odoEndImageUrl   String?             @map("odo_end_image_url")
+  odoDistance      Float?              @map("odo_distance")
+  gpsDistance      Float?              @map("gps_distance")
+  anomalyFlags     Json?               @map("anomaly_flags")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  createdBy        String              @map("created_by")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+  updatedBy        String?             @map("updated_by")
+  deletedAt        DateTime?           @map("deleted_at")
+  deletedBy        String?             @map("deleted_by")
+  segment          BookingSegment      @relation(fields: [segmentId], references: [id])
+  verification     VerificationHeader?
 
   @@map("segment_execution")
 }
@@ -522,23 +524,25 @@ model VerificationHeader {
 }
 
 model ReceiptItem {
-  id            Int                @id @default(autoincrement())
-  verifyId      Int                @map("verify_id")
-  category      String
-  amountIdr     Int                @map("amount_idr")
-  receiptDate   DateTime           @map("receipt_date")
-  photoUrl      String             @map("photo_url")
-  fundingSource FundingSource      @map("funding_source")
-  dupHash       String?            @map("dup_hash")
-  ocrSnapshot   Json?              @map("ocr_snapshot")
-  gaNote        String?            @map("ga_note")
-  createdAt     DateTime           @default(now()) @map("created_at")
-  createdBy     String             @map("created_by")
-  updatedAt     DateTime           @updatedAt @map("updated_at")
-  updatedBy     String?            @map("updated_by")
-  deletedAt     DateTime?          @map("deleted_at")
-  deletedBy     String?            @map("deleted_by")
-  verification  VerificationHeader @relation(fields: [verifyId], references: [id])
+  id              Int                @id @default(autoincrement())
+  verifyId        Int                @map("verify_id")
+  category        String
+  amountIdr       Int                @map("amount_idr")
+  receiptDate     DateTime           @map("receipt_date")
+  photoUrl        String             @map("photo_url")
+  fundingSource   FundingSource?     @map("funding_source")
+  status          ReceiptStatus      @default(PENDING) @map("status")
+  rejectionReason String?            @map("rejection_reason")
+  dupHash         String?            @map("dup_hash")
+  ocrSnapshot     Json?              @map("ocr_snapshot")
+  gaNote          String?            @map("ga_note")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  createdBy       String             @map("created_by")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  updatedBy       String?            @map("updated_by")
+  deletedAt       DateTime?          @map("deleted_at")
+  deletedBy       String?            @map("deleted_by")
+  verification    VerificationHeader @relation(fields: [verifyId], references: [id])
 
   @@map("receipt_item")
 }
@@ -769,6 +773,12 @@ enum CarpoolActionType {
   MERGE
   UNMERGE
   COST_RECALCULATED
+}
+
+enum ReceiptStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum SyncRunType {

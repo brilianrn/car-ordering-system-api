@@ -4,6 +4,7 @@ import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 export enum ApprovalLevel {
   L1 = 'L1', // Supervisor approval
   L2 = 'L2', // GA assignment
+  TRACKING = 'TRACKING', // Tracker L1 status
   ALL = 'ALL', // Both L1 and L2
 }
 

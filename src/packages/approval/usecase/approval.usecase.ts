@@ -229,15 +229,16 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
         orConditions.push(l1Condition);
       }
 
-      // L2 Approval: Booking dengan status APPROVED_L1 yang belum memiliki Assignment
-      // GA and Admin can handle L2 (GA Assignment)
-      if (level === ApprovalLevel.ALL || level === ApprovalLevel.L2) {
-        if (isAdmin || isGA) {
-          orConditions.push({
-            bookingStatus: BookingStatus.APPROVED_L1,
-            assignment: null, // Belum ada assignment
-          });
-        }
+      // Tracking: Booking yang sudah di-approve oleh L1 (untuk monitor hingga FINISHED)
+      if (level === ApprovalLevel.TRACKING) {
+        orConditions.push({
+          approvalHeader: {
+            approverL1Id: employeeId,
+          },
+          bookingStatus: {
+            in: [BookingStatus.APPROVED_L1, BookingStatus.ASSIGNED, BookingStatus.MERGED, BookingStatus.FINISHED],
+          },
+        });
       }
 
       // Apply OR conditions

@@ -150,14 +150,12 @@ export class FinanceUseCase implements FinanceUsecasePort {
         };
       }
 
-      // 2. Validate notes for REJECT or EDIT action
-      if (
-        (dto.action === VerificationAction.REJECT || dto.action === VerificationAction.EDIT) &&
-        (!dto.notes || dto.notes.length < 10)
-      ) {
+      // 2. Validate rejection reason for REJECT action
+      const finalRejectionReason = dto.rejectionReason || dto.notes;
+      if (dto.action === VerificationAction.REJECT && (!finalRejectionReason || finalRejectionReason.length < 5)) {
         return {
           error: {
-            message: 'Notes is required and must be at least 10 characters for REJECT or EDIT action',
+            message: 'Rejection reason is required and must be at least 5 characters for REJECT action',
             code: HttpStatus.BAD_REQUEST,
           },
         };
@@ -169,7 +167,6 @@ export class FinanceUseCase implements FinanceUsecasePort {
           `User ${userId} attempting to verify their own receipt item ${itemId}. SoD violation.`,
           'FinanceUseCase.verifyItem',
         );
-        // Allow but log warning (can be made strict if needed)
       }
 
       // 4. Get verification header
@@ -187,57 +184,113 @@ export class FinanceUseCase implements FinanceUsecasePort {
       const beforeState = {
         fundingSource: receiptItem.fundingSource,
         gaNote: receiptItem.gaNote,
-        action: dto.action,
+        status: receiptItem.status,
+        amountIdr: receiptItem.amountIdr,
+        category: receiptItem.category,
+        receiptDate: receiptItem.receiptDate,
       };
 
-      // 6. Handle duplicate check
-      if (receiptItem.dupHash) {
-        const duplicateCheck = await this.checkDuplicateReceipt(
-          receiptItem.dupHash,
-          receiptItem.amountIdr,
-          receiptItem.receiptDate,
-          itemId,
-        );
+      // 6. Update receipt item based on action
+      const updateData: any = {
+        updatedBy: userId,
+        updatedAt: new Date(),
+        gaNote: dto.notes ?? receiptItem.gaNote,
+      };
 
-        if (duplicateCheck.isDuplicate && dto.action === VerificationAction.APPROVE) {
-          Logger.warn(
-            `Duplicate receipt detected for item ${itemId}. Hash: ${receiptItem.dupHash}`,
-            'FinanceUseCase.verifyItem',
-          );
-          // Still allow but log warning
+      if (dto.action === VerificationAction.REJECT) {
+        updateData.status = 'REJECTED';
+        updateData.rejectionReason = finalRejectionReason;
+
+        // Atomic Status Reversion:
+        // REMOVED: Status isolation. Booking status remains in COMPLETED/ASSIGNED/etc.
+        // Rejection only affects the ReceiptItem level.
+      } else if (dto.action === VerificationAction.APPROVE) {
+        updateData.status = 'APPROVED';
+        updateData.rejectionReason = null; // Clear rejection reason on approval
+
+        // Use sourceFund if provided, otherwise fallback to defaultFundingSource, then existing value, then DRIVER_CASH as final fallback
+        updateData.fundingSource =
+          dto.sourceFund || dto.defaultFundingSource || receiptItem.fundingSource || FundingSource.DRIVER_CASH;
+
+        // Apply revisions if provided during approval (Direct Revision)
+        if (dto.amountIdr) updateData.amountIdr = dto.amountIdr;
+        if (dto.category) updateData.category = dto.category;
+        if (dto.receiptDate) updateData.receiptDate = dto.receiptDate;
+      } else if (dto.action === VerificationAction.EDIT) {
+        // Just revision without final approval
+        if (dto.amountIdr) updateData.amountIdr = dto.amountIdr;
+        if (dto.category) updateData.category = dto.category;
+        if (dto.receiptDate) updateData.receiptDate = dto.receiptDate;
+        if (dto.sourceFund) updateData.fundingSource = dto.sourceFund;
+      }
+
+      await this.db.receiptItem.update({
+        where: { id: itemId },
+        data: updateData,
+      });
+
+      // 6.b Sync VerificationHeader status
+      // If all items are APPROVED, set header to VERIFIED
+      const allItems = await this.db.receiptItem.findMany({
+        where: { verifyId: verificationHeader.id, deletedAt: null },
+      });
+
+      const allApproved = allItems.every((item) => item.status === 'APPROVED');
+      if (allApproved && allItems.length > 0) {
+        await this.db.verificationHeader.update({
+          where: { id: verificationHeader.id },
+          data: {
+            verifyStatus: VerifyStatus.VERIFIED,
+            verifiedAt: new Date(),
+            updatedBy: userId,
+          },
+        });
+        Logger.info(
+          `VerificationHeader ${verificationHeader.id} automatically marked VERIFIED`,
+          'FinanceUseCase.verifyItem',
+        );
+      } else {
+        // If not all approved (e.g. some pending or rejected), ensure it's IN_REVIEW
+        if (verificationHeader.verifyStatus !== VerifyStatus.IN_REVIEW) {
+          await this.db.verificationHeader.update({
+            where: { id: verificationHeader.id },
+            data: {
+              verifyStatus: VerifyStatus.IN_REVIEW,
+              updatedBy: userId,
+            },
+          });
         }
       }
 
-      // 7. Update receipt item based on action
-      const updateData: Prisma.ReceiptItemUpdateInput = {
-        fundingSource: dto.sourceFund,
-        gaNote: dto.notes || null,
-        updatedBy: userId,
-        updatedAt: new Date(),
-      };
+      // 6.c Auto-Close Logic (Final Item Detection)
+      // Check if this was the last item that needed processing (PENDING)
+      const remainingItems = allItems.filter((item) => item.id !== itemId && item.status === 'PENDING');
 
-      // If REJECT, mark as deleted (soft delete)
-      if (dto.action === VerificationAction.REJECT) {
-        updateData.deletedAt = new Date();
-        updateData.deletedBy = userId;
+      if (remainingItems.length === 0) {
+        const executionId = verificationHeader.segmentExecutionId;
+        if (executionId) {
+          Logger.info(
+            `Auto-closing trip for execution ${executionId} as last item ${itemId} was processed`,
+            'FinanceUseCase.verifyItem',
+          );
+          await this.finalizeTripRecords(executionId, userId);
+        }
       }
 
-      await this.repository.updateReceiptItem(itemId, updateData);
-
-      // 8. Handle funding source specific logic
+      // 7. Handle funding source specific logic for APPROVE
       let reimburseTicket: string | null = null;
       let replenishTicket: string | null = null;
 
       if (dto.action === VerificationAction.APPROVE) {
+        const finalFundingSource = updateData.fundingSource;
+
         // Cash Driver: Check driver wallet and create replenish ticket if needed
-        if (dto.sourceFund === FundingSource.DRIVER_CASH) {
+        if (finalFundingSource === FundingSource.DRIVER_CASH) {
           const segmentExecution = verificationHeader.segmentExecution;
           const assignment = segmentExecution?.segment?.booking?.assignment;
           const driver = assignment?.driverChosen;
 
           if (driver) {
-            // TODO: Implement driver wallet balance check
-            // For now, we'll create replenish ticket if not exists
             if (!verificationHeader.replenishTicket) {
               replenishTicket = await this.generateTicketNumber('REPLEN');
               await this.repository.updateVerificationHeader(verificationHeader.id, {
@@ -247,14 +300,11 @@ export class FinanceUseCase implements FinanceUsecasePort {
             } else {
               replenishTicket = verificationHeader.replenishTicket;
             }
-
-            // TODO: Deduct from driver wallet balance
-            // await this.updateDriverWallet(driver.id, -receiptItem.amountIdr);
           }
         }
 
         // Mode-B: Create reimburse ticket
-        if (dto.sourceFund === FundingSource.MODE_B) {
+        if (finalFundingSource === FundingSource.MODE_B) {
           if (!verificationHeader.reimburseTicket) {
             reimburseTicket = await this.generateTicketNumber('REIMB');
             await this.repository.updateVerificationHeader(verificationHeader.id, {
@@ -267,7 +317,7 @@ export class FinanceUseCase implements FinanceUsecasePort {
         }
       }
 
-      // 9. Create audit log
+      // 8. Create audit log
       await this.repository.createAuditLog({
         userNik: userId,
         featureCode: 'FR-FIN-002',
@@ -277,9 +327,7 @@ export class FinanceUseCase implements FinanceUsecasePort {
         beforeAfter: {
           before: beforeState,
           after: {
-            fundingSource: dto.sourceFund,
-            gaNote: dto.notes,
-            action: dto.action,
+            ...updateData,
             reimburseTicket,
             replenishTicket,
           },
@@ -296,7 +344,7 @@ export class FinanceUseCase implements FinanceUsecasePort {
         data: {
           itemId,
           action: dto.action,
-          fundingSource: dto.sourceFund,
+          fundingSource: updateData.fundingSource || receiptItem.fundingSource,
           reimburseTicket,
           replenishTicket,
           message: `Receipt item ${dto.action.toLowerCase()}d successfully`,
@@ -349,17 +397,16 @@ export class FinanceUseCase implements FinanceUsecasePort {
       }
 
       // 3. Guard: Completeness Check
-      // All receipt items must be verified (not rejected, not in review)
+      // All receipt items must be APPROVED
       const receiptItems = verificationHeader.receiptItems || [];
-      const unverifiedItems = receiptItems.filter((item: Prisma.ReceiptItemGetPayload<{}>) => {
-        // Check if item is rejected (deleted) or has no funding source set
-        return item.deletedAt || !item.fundingSource;
+      const unapprovedItems = receiptItems.filter((item: any) => {
+        return item.status !== 'APPROVED' || item.deletedAt;
       });
 
-      if (unverifiedItems.length > 0) {
+      if (unapprovedItems.length > 0) {
         return {
           error: {
-            message: `Cannot close trip. ${unverifiedItems.length} receipt item(s) are not verified or rejected.`,
+            message: `Cannot close trip. ${unapprovedItems.length} receipt item(s) are not approved (either pending, rejected, or deleted).`,
             code: HttpStatus.BAD_REQUEST,
           },
         };
@@ -511,40 +558,7 @@ export class FinanceUseCase implements FinanceUsecasePort {
       });
 
       // 10. Send notifications
-      try {
-        if (booking) {
-          const requester = booking.requester;
-          const assignment = booking.assignment;
-          const driver = assignment?.driverChosen;
-
-          // Notify requester
-          if (requester?.email) {
-            await this.notificationService.sendEmail({
-              to: requester.email,
-              subject: 'Trip Closed',
-              body: `Your trip ${booking.bookingNumber} has been closed and verified.`,
-            });
-          }
-
-          // Notify driver
-          const driverEmail = driver?.employee?.email;
-          if (driverEmail) {
-            await this.notificationService.sendEmail({
-              to: driverEmail,
-              subject: 'Trip Closed',
-              body: `Trip ${booking.bookingNumber} has been closed and verified.`,
-            });
-          }
-
-          // TODO: Send WA notifications if needed
-        }
-      } catch (notifError) {
-        Logger.warn(
-          `Failed to send notifications: ${notifError instanceof Error ? notifError.message : 'Unknown error'}`,
-          'FinanceUseCase.closeTrip',
-        );
-        // Don't fail the close trip operation if notification fails
-      }
+      await this.sendTripClosedNotifications(segmentExecution.segment?.booking);
 
       return {
         data: {
@@ -575,6 +589,130 @@ export class FinanceUseCase implements FinanceUsecasePort {
       };
     }
   };
+
+  /**
+   * Refactored shared logic to finalize trip records
+   * Updates booking status, driver status, carpool bookings, generates final tickets, and sends notifications.
+   */
+  private async finalizeTripRecords(executionId: number, userId: string): Promise<void> {
+    const verificationHeader = await this.repository.findVerificationHeaderByExecutionId(executionId);
+    if (!verificationHeader) return;
+
+    const segmentExecution = await this.repository.findSegmentExecutionById(executionId);
+    if (!segmentExecution) return;
+
+    const receiptItems = verificationHeader.receiptItems || [];
+
+    // 1. Generate final tickets if missing
+    let reimburseTicket = verificationHeader.reimburseTicket;
+    let replenishTicket = verificationHeader.replenishTicket;
+
+    const hasModeBItems = receiptItems.some((item: any) => item.fundingSource === FundingSource.MODE_B);
+    if (hasModeBItems && !reimburseTicket) {
+      reimburseTicket = await this.generateTicketNumber('REIMB');
+    }
+
+    const hasDriverCashItems = receiptItems.some((item: any) => item.fundingSource === FundingSource.DRIVER_CASH);
+    if (hasDriverCashItems && !replenishTicket) {
+      replenishTicket = await this.generateTicketNumber('REPLEN');
+    }
+
+    // 2. Update verification header
+    await this.repository.updateVerificationHeader(verificationHeader.id, {
+      reimburseTicket: reimburseTicket || verificationHeader.reimburseTicket,
+      replenishTicket: replenishTicket || verificationHeader.replenishTicket,
+      verifyStatus: VerifyStatus.VERIFIED,
+      verifiedAt: new Date(),
+      verifierId: userId,
+      updatedBy: userId,
+    });
+
+    // 3. Update booking and segment status
+    const booking = segmentExecution.segment?.booking;
+    if (booking) {
+      await this.repository.updateBooking(booking.id, {
+        bookingStatus: BookingStatus.FINISHED,
+        updatedBy: userId,
+      });
+
+      const driverId = booking.assignment?.driverChosenId;
+      if (driverId) {
+        await this.repository.updateDriver(driverId, {
+          realtimeStatus: RealtimeStatus.Idle,
+          updatedBy: userId,
+        });
+      }
+
+      if (booking.carpoolGroupId) {
+        await this.repository.updateManyBookings(
+          {
+            carpoolGroupId: booking.carpoolGroupId,
+            bookingStatus: { not: BookingStatus.FINISHED },
+            deletedAt: null,
+          },
+          {
+            bookingStatus: BookingStatus.FINISHED,
+            updatedBy: userId,
+          },
+        );
+      }
+    }
+
+    // 4. Audit Log
+    await this.repository.createAuditLog({
+      userNik: userId,
+      featureCode: 'FR-TRP-004',
+      action: 'AUTO_CLOSE_TRIP',
+      entityType: 'SegmentExecution',
+      entityId: executionId,
+      beforeAfter: {
+        before: { status: segmentExecution.status, verifyStatus: verificationHeader.verifyStatus },
+        after: {
+          status: 'FINISHED',
+          verifyStatus: VerifyStatus.VERIFIED,
+          reimburseTicket,
+          replenishTicket,
+        },
+      },
+      reasonCode: 'TRIP_AUTO_CLOSED',
+    });
+
+    // 5. Notifications
+    await this.sendTripClosedNotifications(booking);
+  }
+
+  /**
+   * Helper to send notifications when a trip is closed
+   */
+  private async sendTripClosedNotifications(booking: any): Promise<void> {
+    if (!booking) return;
+    try {
+      const requester = booking.requester;
+      const driver = booking.assignment?.driverChosen;
+
+      if (requester?.email) {
+        await this.notificationService.sendEmail({
+          to: requester.email,
+          subject: 'Trip Closed',
+          body: `Your trip ${booking.bookingNumber} has been closed and verified.`,
+        });
+      }
+
+      const driverEmail = driver?.employee?.email;
+      if (driverEmail) {
+        await this.notificationService.sendEmail({
+          to: driverEmail,
+          subject: 'Trip Closed',
+          body: `Trip ${booking.bookingNumber} has been closed and verified.`,
+        });
+      }
+    } catch (notifError) {
+      Logger.warn(
+        `Failed to send notifications: ${notifError instanceof Error ? notifError.message : 'Unknown error'}`,
+        'FinanceUseCase.sendTripClosedNotifications',
+      );
+    }
+  }
 
   /**
    * Bulk approve all receipt items under a VerificationHeader and finalize the header.
@@ -624,7 +762,7 @@ export class FinanceUseCase implements FinanceUsecasePort {
       // 3. Atomic transaction: update all items + header in one shot
       const now = new Date();
       const updatedHeader = await this.db.$transaction(async (tx) => {
-        // 3a. Mark every receipt item as VERIFIED via gaNote (ReceiptItem has no status column – use gaNote flag)
+        // 3a. Mark every receipt item as APPROVED
         if (verificationHeader.receiptItems.length > 0) {
           await tx.receiptItem.updateMany({
             where: {
@@ -632,7 +770,8 @@ export class FinanceUseCase implements FinanceUsecasePort {
               deletedAt: null,
             },
             data: {
-              gaNote: `APPROVED by ${userId} at ${now.toISOString()}`,
+              status: 'APPROVED',
+              gaNote: `APPROVED via Bulk by ${userId} at ${now.toISOString()}`,
               updatedBy: userId,
             },
           });
@@ -650,6 +789,10 @@ export class FinanceUseCase implements FinanceUsecasePort {
           },
           include: { receiptItems: true },
         });
+
+        // 3c. If bulk verifying, the header is now VERIFIED, we might should check if the trip can be closed.
+        // But closeTrip is a separate endpoint usually.
+        // Actually, if it's bulk approved, everything is approved, so it stays VERIFIED.
 
         return header;
       });

@@ -84,6 +84,7 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
         status: 'InProgress',
         checkInAt,
         odoStart: dto.odoStart,
+        odoStartImageUrl: dto.odometerImageUrl,
         createdBy: userId,
       });
 
@@ -183,6 +184,7 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
         status: 'Completed',
         checkOutAt,
         odoEnd: dto.odoEnd,
+        odoEndImageUrl: dto.odometerImageUrl,
         odoDistance,
         gpsDistance: dto.gpsDistance || null,
         anomalyFlags: Object.keys(anomalyFlags).length > 0 ? (anomalyFlags as Prisma.InputJsonValue) : Prisma.JsonNull,
@@ -261,15 +263,25 @@ export class ExecutionUseCase implements ExecutionUsecasePort {
 
   scanReceipt = async (executionId: number, dto: ScanReceiptDto): Promise<IUsecaseResponse<any>> => {
     try {
-      // 1. Get execution by ID (for validation)
-      const execution = await this.repository.findSegmentExecutionById(executionId);
+      // 1. Get execution context (flexible lookup: Execution ID, Segment ID, or Segment)
+      let execution = await this.repository.findSegmentExecutionById(executionId);
+
       if (!execution) {
-        return {
-          error: {
-            message: `Execution with ID ${executionId} not found`,
-            code: HttpStatus.NOT_FOUND,
-          },
-        };
+        // Fallback: try looking up as segmentId
+        execution = await this.repository.findSegmentExecutionBySegmentId(executionId);
+      }
+
+      if (!execution) {
+        // Last resort: If no execution yet, check if valid segment exists (for pre-checkin scans)
+        const segment = await this.repository.findSegmentById(executionId);
+        if (!segment) {
+          return {
+            error: {
+              message: `Execution or Segment with ID ${executionId} not found`,
+              code: HttpStatus.NOT_FOUND,
+            },
+          };
+        }
       }
 
       // 2. Process OCR to extract data from receipt photo

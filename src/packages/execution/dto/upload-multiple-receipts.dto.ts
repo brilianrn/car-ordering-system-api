@@ -1,3 +1,4 @@
+import { CostCategory } from '@/packages/cost-variable/dto/create-cost-variable.dto';
 import { FundingSource } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
@@ -9,10 +10,8 @@ import {
   IsOptional,
   IsString,
   Min,
-  ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { CostCategory } from '@/packages/cost-variable/dto/create-cost-variable.dto';
 
 export class ReceiptItemDto {
   @IsEnum(CostCategory)
@@ -33,9 +32,9 @@ export class ReceiptItemDto {
   @IsNotEmpty()
   photoUrl: string; // URL of receipt photo (after upload) - S3 key or presigned URL
 
+  @IsOptional()
   @IsEnum(FundingSource)
-  @IsNotEmpty()
-  fundingSource: FundingSource; // DRIVER_CASH, MODE_B, VENDOR, OPERATIONAL
+  fundingSource?: FundingSource; // DRIVER_CASH, MODE_B, VENDOR, OPERATIONAL
 
   @IsOptional()
   @IsString()
