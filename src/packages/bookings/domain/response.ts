@@ -72,6 +72,7 @@ export interface IBookingListResponse {
     page: number;
     limit: number;
     total: number;
+    totalPending?: number; // Optional fallback for UI support
   };
 }
 

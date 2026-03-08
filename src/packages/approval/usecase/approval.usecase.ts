@@ -198,47 +198,69 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
         deletedAt: null,
       };
 
-      // Build OR conditions for L1 and L2 approvals
+      // Build OR conditions for L1, L2, and Tracking
       const orConditions: Prisma.BookingWhereInput[] = [];
 
-      // L1 Approval: Booking dengan status SUBMITTED yang memiliki ApprovalHeader dengan decisionL1 = null
+      // 1. L1 Approval: Booking with status SUBMITTED waiting for L1 decision
       if (level === ApprovalLevel.ALL || level === ApprovalLevel.L1) {
-        const l1Condition: Prisma.BookingWhereInput = {
-          bookingStatus: BookingStatus.SUBMITTED,
-          approvalHeader: {
-            isNot: null,
-          },
-        };
-
-        // Add approvalHeader conditions separately
         const approvalHeaderConditions: Prisma.ApprovalHeaderWhereInput = {
-          decisionL1: null, // PENDING approval
+          decisionL1: null, // PENDING L1 approval
         };
 
-        // NEW: FORCE Filter by currentUserEmployeeId if user is LEADER
         if (isLeader) {
           approvalHeaderConditions.approverL1Id = employeeId;
         } else if (approverId) {
-          // If GA/Admin provides an approverId in query, use it
           approvalHeaderConditions.approverL1Id = approverId;
         }
 
-        // Combine conditions using AND
-        l1Condition.AND = [{ approvalHeader: { isNot: null } }, { approvalHeader: approvalHeaderConditions }];
-
-        orConditions.push(l1Condition);
-      }
-
-      // Tracking: Booking yang sudah di-approve oleh L1 (untuk monitor hingga FINISHED)
-      if (level === ApprovalLevel.TRACKING) {
         orConditions.push({
+          bookingStatus: BookingStatus.SUBMITTED,
           approvalHeader: {
-            approverL1Id: employeeId,
-          },
-          bookingStatus: {
-            in: [BookingStatus.APPROVED_L1, BookingStatus.ASSIGNED, BookingStatus.MERGED, BookingStatus.FINISHED],
+            is: {
+              ...approvalHeaderConditions,
+            },
           },
         });
+      }
+
+      // 2. L2 Approval (GA Assignment): Booking approved by L1 waiting for GA/Assignment
+      if (level === ApprovalLevel.ALL || level === ApprovalLevel.L2) {
+        // L2 logic: APPROVED_L1 status is the primary indicator
+        const l2Condition: Prisma.BookingWhereInput = {
+          bookingStatus: BookingStatus.APPROVED_L1,
+        };
+
+        // If Leader is tracking, they only see bookings they approved
+        if (isLeader && level === ApprovalLevel.ALL) {
+          l2Condition.approvalHeader = {
+            approverL1Id: employeeId,
+          };
+        }
+
+        orConditions.push(l2Condition);
+      }
+
+      // 3. Tracking: Higher states (In-Progress, Finished)
+      // For Leaders: Only those they approved. For GA/Admin: All.
+      if (level === ApprovalLevel.ALL || level === ApprovalLevel.TRACKING) {
+        const trackingStatuses = [
+          BookingStatus.APPROVED_L1,
+          BookingStatus.ASSIGNED,
+          BookingStatus.MERGED,
+          BookingStatus.FINISHED,
+        ];
+
+        const trackingCondition: Prisma.BookingWhereInput = {
+          bookingStatus: { in: trackingStatuses },
+        };
+
+        if (isLeader) {
+          trackingCondition.approvalHeader = {
+            approverL1Id: employeeId,
+          };
+        }
+
+        orConditions.push(trackingCondition);
       }
 
       // Apply OR conditions
@@ -269,7 +291,40 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
       // Order by: Data terbaru di atas (baik setelah create atau update)
       const orderBy: Prisma.BookingOrderByWithRelationInput = { updatedAt: 'desc' };
 
-      const [data, total] = await Promise.all([
+      // Calculate Pending Count (Actionable tasks)
+      const pendingWhere: Prisma.BookingWhereInput = {
+        deletedAt: null,
+      };
+
+      const pendingOrConditions: Prisma.BookingWhereInput[] = [];
+
+      // Actionable for L1 (Leader)
+      if (isLeader) {
+        pendingOrConditions.push({
+          bookingStatus: BookingStatus.SUBMITTED,
+          approvalHeader: {
+            is: {
+              approverL1Id: employeeId,
+              decisionL1: null,
+            },
+          },
+        });
+      }
+
+      // Actionable for L2 (GA/Admin) - Waiting for assignment
+      if (isGA || isAdmin) {
+        pendingOrConditions.push({
+          bookingStatus: BookingStatus.APPROVED_L1,
+        });
+      }
+
+      if (pendingOrConditions.length > 0) {
+        pendingWhere.OR = pendingOrConditions;
+      } else {
+        pendingWhere.id = -1;
+      }
+
+      const [data, total, totalPending] = await Promise.all([
         this.repository.findApprovalList({
           skip,
           take: limit,
@@ -277,6 +332,7 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
           orderBy,
         }),
         this.repository.countApprovalList(where),
+        this.repository.countApprovalList(pendingWhere),
       ]);
 
       // Transform bookings with presigned URLs
@@ -294,6 +350,7 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
             page,
             limit,
             total,
+            totalPending,
           },
         },
       };
