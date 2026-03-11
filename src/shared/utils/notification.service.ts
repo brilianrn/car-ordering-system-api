@@ -168,7 +168,7 @@ export class NotificationService {
       promises.push(
         sendMail({
           to: [params.approverEmail],
-          subject: `Permintaan Persetujuan: ${params.bookingDetails.bookingNumber}`,
+          subject: `Approval Request: ${params.bookingDetails.bookingNumber}`,
           html: emailHtml,
         }).catch((error) => {
           Logger.error(
@@ -209,8 +209,8 @@ export class NotificationService {
       promises.push(
         this.sendPushNotification({
           userId: params.approverId,
-          title: 'Permintaan Persetujuan Booking',
-          message: `${params.bookingDetails.requesterName} meminta persetujuan untuk ${params.bookingDetails.destination}`,
+          title: 'Booking Approval Request',
+          message: `${params.bookingDetails.requesterName} is requesting approval for ${params.bookingDetails.destination}`,
           data: {
             type: 'booking_approval',
             bookingNumber: params.bookingDetails.bookingNumber,

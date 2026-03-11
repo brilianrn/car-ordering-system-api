@@ -21,6 +21,7 @@ import { ReportsModule } from './reports.module';
 import { UploadModule } from './upload.module';
 import { UserModule } from './user.module';
 import { VehiclesModule } from './vehicles.module';
+import { VendorsModule } from './vendors.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { VehiclesModule } from './vehicles.module';
     ReportsModule,
     SchedulerPackageModule,
     RBACModule,
+    VendorsModule,
   ],
 })
 export class AppModule {}

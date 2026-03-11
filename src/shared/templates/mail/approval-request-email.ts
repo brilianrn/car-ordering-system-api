@@ -12,11 +12,11 @@ export interface ApprovalRequestEmailData {
 export const getApprovalRequestEmailTemplate = (data: ApprovalRequestEmailData): string => {
   return `
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Permintaan Persetujuan Booking</title>
+  <title>Booking Approval Request</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
@@ -26,7 +26,7 @@ export const getApprovalRequestEmailTemplate = (data: ApprovalRequestEmailData):
           <!-- Header -->
           <tr>
             <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center;">
-              <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">🚗 Permintaan Persetujuan</h1>
+              <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">🚗 Approval Request</h1>
               <p style="margin: 10px 0 0 0; color: #f0f0f0; font-size: 14px;">Car Ordering System - Dharma Polimetal</p>
             </td>
           </tr>
@@ -35,36 +35,36 @@ export const getApprovalRequestEmailTemplate = (data: ApprovalRequestEmailData):
           <tr>
             <td style="padding: 40px 30px;">
               <p style="margin: 0 0 20px 0; color: #333333; font-size: 16px;">
-                Halo <strong>${data.approverName}</strong>,
+                Hello <strong>${data.approverName}</strong>,
               </p>
               <p style="margin: 0 0 30px 0; color: #666666; font-size: 16px; line-height: 1.6;">
-                Anda memiliki permintaan booking mobil baru yang memerlukan persetujuan Anda.
+                You have a new car booking request that requires your approval.
               </p>
               
               <!-- Booking Details Card -->
               <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8f9fa; border-radius: 8px; margin-bottom: 30px;">
                 <tr>
                   <td style="padding: 20px;">
-                    <h3 style="margin: 0 0 15px 0; color: #333333; font-size: 18px;">Detail Booking</h3>
+                    <h3 style="margin: 0 0 15px 0; color: #333333; font-size: 18px;">Booking Details</h3>
                     <table width="100%" cellpadding="8" cellspacing="0">
                       <tr>
-                        <td style="color: #666666; font-size: 14px; width: 40%;">Nomor Booking:</td>
+                        <td style="color: #666666; font-size: 14px; width: 40%;">Booking Number:</td>
                         <td style="color: #333333; font-size: 14px; font-weight: 600;">${data.bookingNumber}</td>
                       </tr>
                       <tr>
-                        <td style="color: #666666; font-size: 14px;">Pemohon:</td>
+                        <td style="color: #666666; font-size: 14px;">Requester:</td>
                         <td style="color: #333333; font-size: 14px; font-weight: 600;">${data.requesterName}</td>
                       </tr>
                       <tr>
-                        <td style="color: #666666; font-size: 14px;">Tujuan:</td>
+                        <td style="color: #666666; font-size: 14px;">Destination:</td>
                         <td style="color: #333333; font-size: 14px; font-weight: 600;">${data.destination}</td>
                       </tr>
                       <tr>
-                        <td style="color: #666666; font-size: 14px;">Tanggal:</td>
+                        <td style="color: #666666; font-size: 14px;">Date:</td>
                         <td style="color: #333333; font-size: 14px; font-weight: 600;">${data.date}</td>
                       </tr>
                       <tr>
-                        <td style="color: #666666; font-size: 14px;">Keperluan:</td>
+                        <td style="color: #666666; font-size: 14px;">Purpose:</td>
                         <td style="color: #333333; font-size: 14px; font-weight: 600;">${data.purpose}</td>
                       </tr>
                     </table>
@@ -73,7 +73,7 @@ export const getApprovalRequestEmailTemplate = (data: ApprovalRequestEmailData):
               </table>
               
               <p style="margin: 0 0 20px 0; color: #666666; font-size: 14px; line-height: 1.6;">
-                Silakan pilih tindakan yang ingin Anda lakukan:
+                Please select an action:
               </p>
               
               <!-- Action Buttons -->
@@ -81,13 +81,13 @@ export const getApprovalRequestEmailTemplate = (data: ApprovalRequestEmailData):
                 <tr>
                   <td width="48%" align="center">
                     <a href="${data.approveLink}" style="display: block; background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); color: #ffffff; text-decoration: none; padding: 16px 30px; border-radius: 6px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);">
-                      ✅ Setujui
+                      ✅ Approve
                     </a>
                   </td>
                   <td width="4%"></td>
                   <td width="48%" align="center">
                     <a href="${data.rejectLink}" style="display: block; background: linear-gradient(135deg, #f44336 0%, #da190b 100%); color: #ffffff; text-decoration: none; padding: 16px 30px; border-radius: 6px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);">
-                      ❌ Tolak
+                      ❌ Reject
                     </a>
                   </td>
                 </tr>
@@ -98,8 +98,8 @@ export const getApprovalRequestEmailTemplate = (data: ApprovalRequestEmailData):
                 <tr>
                   <td style="padding: 15px;">
                     <p style="margin: 0; color: #856404; font-size: 13px; line-height: 1.6;">
-                      <strong>⚠️ Catatan Keamanan:</strong><br>
-                      Link ini akan mengarahkan Anda ke halaman konfirmasi. Token berlaku selama 7 hari. Jangan bagikan link ini kepada orang lain.
+                      <strong>⚠️ Security Note:</strong><br>
+                      This link will redirect you to the confirmation page. Token is valid for 7 days. Do not share this link with others.
                     </p>
                   </td>
                 </tr>
@@ -114,7 +114,7 @@ export const getApprovalRequestEmailTemplate = (data: ApprovalRequestEmailData):
                 © ${new Date().getFullYear()} Dharma Polimetal - Car Ordering System
               </p>
               <p style="margin: 10px 0 0 0; color: #999999; font-size: 11px;">
-                Email otomatis, mohon tidak membalas email ini.
+                Automatic email, please do not reply.
               </p>
             </td>
           </tr>

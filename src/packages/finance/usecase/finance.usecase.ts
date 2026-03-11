@@ -212,6 +212,17 @@ export class FinanceUseCase implements FinanceUsecasePort {
         updateData.fundingSource =
           dto.sourceFund || dto.defaultFundingSource || receiptItem.fundingSource || FundingSource.DRIVER_CASH;
 
+        // Set isAffectingDriverBalance based on funding source and category
+        // If it's a vendor-related item or funding source is COMPANY_TO_VENDOR, it doesn't affect driver balance
+        if (
+          updateData.fundingSource === FundingSource.COMPANY_TO_VENDOR ||
+          updateData.fundingSource === FundingSource.VENDOR
+        ) {
+          updateData.isAffectingDriverBalance = false;
+        } else {
+          updateData.isAffectingDriverBalance = true;
+        }
+
         // Apply revisions if provided during approval (Direct Revision)
         if (dto.amountIdr) updateData.amountIdr = dto.amountIdr;
         if (dto.category) updateData.category = dto.category;
@@ -314,6 +325,14 @@ export class FinanceUseCase implements FinanceUsecasePort {
           } else {
             reimburseTicket = verificationHeader.reimburseTicket;
           }
+        }
+
+        // Company to Vendor / Vendor: Skip driver tickets
+        if (finalFundingSource === FundingSource.COMPANY_TO_VENDOR || finalFundingSource === FundingSource.VENDOR) {
+          Logger.info(
+            `Skipping driver ticket generation for ${finalFundingSource} item ${itemId}`,
+            'FinanceUseCase.verifyItem',
+          );
         }
       }
 
@@ -471,14 +490,16 @@ export class FinanceUseCase implements FinanceUsecasePort {
 
       // Check if Mode-B items exist but no reimburse ticket
       const hasModeBItems = receiptItems.some(
-        (item: Prisma.ReceiptItemGetPayload<{}>) => item.fundingSource === FundingSource.MODE_B,
+        (item: any) => item.fundingSource === FundingSource.MODE_B && item.isAffectingDriverBalance,
       );
       if (hasModeBItems && !reimburseTicket) {
         reimburseTicket = await this.generateTicketNumber('REIMB');
       }
 
       // Check if Driver Cash items exist but no replenish ticket
-      const hasDriverCashItems = receiptItems.some((item) => item.fundingSource === FundingSource.DRIVER_CASH);
+      const hasDriverCashItems = receiptItems.some(
+        (item: any) => item.fundingSource === FundingSource.DRIVER_CASH && item.isAffectingDriverBalance,
+      );
       if (hasDriverCashItems && !replenishTicket) {
         replenishTicket = await this.generateTicketNumber('REPLEN');
       }
@@ -607,12 +628,16 @@ export class FinanceUseCase implements FinanceUsecasePort {
     let reimburseTicket = verificationHeader.reimburseTicket;
     let replenishTicket = verificationHeader.replenishTicket;
 
-    const hasModeBItems = receiptItems.some((item: any) => item.fundingSource === FundingSource.MODE_B);
+    const hasModeBItems = receiptItems.some(
+      (item: any) => item.fundingSource === FundingSource.MODE_B && item.isAffectingDriverBalance,
+    );
     if (hasModeBItems && !reimburseTicket) {
       reimburseTicket = await this.generateTicketNumber('REIMB');
     }
 
-    const hasDriverCashItems = receiptItems.some((item: any) => item.fundingSource === FundingSource.DRIVER_CASH);
+    const hasDriverCashItems = receiptItems.some(
+      (item: any) => item.fundingSource === FundingSource.DRIVER_CASH && item.isAffectingDriverBalance,
+    );
     if (hasDriverCashItems && !replenishTicket) {
       replenishTicket = await this.generateTicketNumber('REPLEN');
     }

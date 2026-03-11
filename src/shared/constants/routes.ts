@@ -19,6 +19,7 @@ export enum ERoutes {
   CARPOOL = `${EPrefix.V1}/carpool`,
   APPROVALS = `${EPrefix.V1}/approvals`,
   ORG_UNIT = `${EPrefix.V1}/org-unit`,
+  VENDORS = `${EPrefix.V1}/vendors`,
 }
 
 export const authRoute = {
@@ -127,4 +128,13 @@ export const financeRoute = {
   verifyItem: '/verify-item',
   verifyBulk: '/verify-bulk',
   closeTrip: '/trip/:executionId/close',
+};
+
+export const vendorRoute = {
+  list: '',
+  findOne: '/:id',
+  create: '',
+  update: '/:id',
+  delete: '/:id',
+  options: '/options',
 };

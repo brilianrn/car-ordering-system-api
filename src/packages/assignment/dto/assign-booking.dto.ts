@@ -1,31 +1,56 @@
 import { ResourceMode } from '@prisma/client';
-import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Min, ValidateIf } from 'class-validator';
 
 export class AssignBookingDto {
+  @IsOptional()
+  @ValidateIf((o) => o.resourceMode === 'INTERNAL')
   @IsInt()
   @IsNotEmpty()
   @Type(() => Number)
   @Min(1)
-  vehicleChosenId: number; // Vehicle ID to assign
-
-  @IsInt()
-  @IsNotEmpty()
-  @Type(() => Number)
-  @Min(1)
-  driverChosenId: number; // Driver ID to assign
+  vehicleChosenId?: number;
 
   @IsOptional()
+  @ValidateIf((o) => o.resourceMode === 'INTERNAL')
   @IsInt()
+  @IsNotEmpty()
   @Type(() => Number)
   @Min(1)
-  vendorChosenId?: number; // Vendor ID (required if resourceMode = DAILY_RENT)
+  driverChosenId?: number;
+
+  @IsOptional()
+  @ValidateIf((o) => o.resourceMode === 'DAILY_RENT')
+  @IsInt()
+  @IsNotEmpty()
+  @Type(() => Number)
+  @Min(1)
+  vendorChosenId?: number;
+
+  @IsOptional()
+  @ValidateIf((o) => o.resourceMode === 'DAILY_RENT')
+  @IsNotEmpty()
+  @Type(() => Number)
+  @Min(0)
+  vendorDailyRate?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  estimatedTariff?: number;
 
   @IsOptional()
   @IsString()
-  dispatchNote?: string; // Optional dispatch note
+  externalDriverName?: string;
+
+  @IsOptional()
+  @IsString()
+  externalVehiclePlate?: string;
+
+  @IsOptional()
+  @IsString()
+  dispatchNote?: string;
 
   @IsEnum(ResourceMode)
   @IsNotEmpty()
-  resourceMode: ResourceMode; // INTERNAL, DAILY_RENT, or PERSONAL
+  resourceMode: ResourceMode;
 }

@@ -1,4 +1,4 @@
-import { TransmissionType, VehicleStatus } from '@prisma/client';
+import { ResourceMode, TransmissionType, VehicleStatus } from '@prisma/client';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -51,6 +51,10 @@ export class CreateVehicleDto {
   @IsOptional()
   @IsEnum(VehicleStatus)
   status?: VehicleStatus;
+
+  @IsOptional()
+  @IsEnum(ResourceMode)
+  resourceMode?: ResourceMode;
 
   @IsString()
   @IsNotEmpty()

@@ -88,7 +88,11 @@ model Account {
 model Vendor {
   id         Int       @id @default(autoincrement())
   name       String    @map("name")
+  code       String?   @unique @map("code")
   contactPic String?   @map("contact_pic")
+  phoneNumber String?  @map("phone_number")
+  address     String?  @map("address")
+  status      VendorStatus @default(ACTIVE) @map("status")
   createdAt  DateTime  @default(now()) @map("created_at")
   createdBy  String    @map("created_by")
   updatedAt  DateTime  @updatedAt @map("updated_at")
@@ -97,6 +101,7 @@ model Vendor {
   deletedBy  String?   @map("deleted_by")
   drivers    Driver[]
   vehicles   Vehicle[]
+  assignments Assignment[]
 
   @@map("vendor")
 }
@@ -107,6 +112,7 @@ model Vehicle {
   licensePlate     String            @unique @map("license_plate")
   vendorId         Int?              @map("vendor_id")
   brandModel       String            @map("brand_model")
+  resourceMode     ResourceMode      @default(INTERNAL) @map("resource_mode")
   vehicleType      String            @map("vehicle_type")
   year             Int
   transmission     TransmissionType
@@ -290,6 +296,7 @@ model Booking {
   autoCancelAt     DateTime?        @map("auto_cancel_at")
   carpoolGroupId   Int?             @map("carpool_group_id")
   vehicleId        Int?             @map("vehicle_id") // Selected vehicle ID (can be changed by GA at L2)
+  fundingSource    FundingSource?   @map("funding_source") 
   originNote       String?          @map("origin_note") // Detail lokasi origin (e.g., "Lobby Utama")
   destinationNote  String?          @map("destination_note") // Detail lokasi destination
   distance         Float?           @map("distance") // Jarak dalam KM (dari OSRM)
@@ -396,6 +403,12 @@ model ApprovalHeader {
   booking        Booking         @relation(fields: [bookingId], references: [id])
   assignment     Assignment?
 
+  // External Vehicle Re-Approval Fields
+  isExternalApproval     Boolean?        @default(false) @map("is_external_approval")
+  externalApprovalNote   String?         @map("external_approval_note")
+  decisionL1External     ApprovalStatus? @map("decision_l1_external")
+  decisionTimeL1External DateTime?       @map("decision_time_l1_external")
+
   @@map("approval_header")
 }
 
@@ -410,6 +423,11 @@ model Assignment {
   assignmentSnapshot Json?           @map("assignment_snapshot")
   assignedAtL2       DateTime?       @map("assigned_at_l2")
   slaDueAtL2         DateTime?       @map("sla_due_at_l2")
+  estimatedTariff      Decimal?        @map("estimated_tariff") @db.Decimal(15, 2)
+  vendorDailyRate      Decimal?        @map("vendor_daily_rate") @db.Decimal(15, 2)
+  totalVendorCost      Decimal?        @map("total_vendor_cost") @db.Decimal(15, 2)
+  externalDriverName   String?         @map("external_driver_name")
+  externalVehiclePlate String?         @map("external_vehicle_plate")
   approvalHeaderId   Int?            @unique @map("approval_header_id")
   createdAt          DateTime        @default(now()) @map("created_at")
   createdBy          String          @map("created_by")
@@ -421,6 +439,7 @@ model Assignment {
   booking            Booking         @relation(fields: [bookingId], references: [id])
   driverChosen       Driver?         @relation("AssignmentDriver", fields: [driverChosenId], references: [id])
   vehicleChosen      Vehicle?        @relation("AssignmentVehicle", fields: [vehicleChosenId], references: [id])
+  vendorChosen       Vendor?         @relation(fields: [vendorChosenId], references: [id])
 
   @@map("assignment")
 }
@@ -531,6 +550,7 @@ model ReceiptItem {
   receiptDate     DateTime           @map("receipt_date")
   photoUrl        String             @map("photo_url")
   fundingSource   FundingSource?     @map("funding_source")
+  isAffectingDriverBalance Boolean    @default(true) @map("is_affecting_driver_balance")
   status          ReceiptStatus      @default(PENDING) @map("status")
   rejectionReason String?            @map("rejection_reason")
   dupHash         String?            @map("dup_hash")
@@ -638,6 +658,7 @@ enum BookingStatus {
   DRAFT
   SUBMITTED
   APPROVED_L1
+  WAITING_EXTERNAL_APPROVE
   ASSIGNED
   CANCELLED
   REJECTED
@@ -657,6 +678,8 @@ enum ResourceMode {
   INTERNAL
   DAILY_RENT
   PERSONAL
+  MODE_A
+  MODE_B
 }
 
 enum FundingSource {
@@ -664,6 +687,7 @@ enum FundingSource {
   MODE_B
   VENDOR
   OPERATIONAL
+  COMPANY_TO_VENDOR
 }
 
 enum VerifyStatus {
@@ -671,6 +695,11 @@ enum VerifyStatus {
   IN_REVIEW
   VERIFIED
   BLOCKED
+}
+
+enum VendorStatus {
+  ACTIVE
+  INACTIVE
 }
 
 enum CategoryStatus {

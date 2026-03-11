@@ -1339,6 +1339,10 @@ export class BookingsUseCase implements BookingsUsecasePort {
         });
       }
 
+      // Add isCarpool flag and fundingSource
+      (bookingWithPresignedUrls as any).isCarpool = !!booking.carpoolGroupId;
+      (bookingWithPresignedUrls as any).fundingSource = (booking as any).fundingSource;
+
       return { data: bookingWithPresignedUrls as IBooking };
     } catch (error) {
       Logger.error(

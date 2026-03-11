@@ -59,11 +59,14 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
         };
       }
 
-      // 2. Validate booking status
-      if (booking.bookingStatus !== BookingStatus.SUBMITTED) {
+      // 2. Validate booking status — allow both standard L1 and external re-approval
+      const isExternalReApproval = booking.bookingStatus === BookingStatus.WAITING_EXTERNAL_APPROVE;
+      const isStandardApproval = booking.bookingStatus === BookingStatus.SUBMITTED;
+
+      if (!isStandardApproval && !isExternalReApproval) {
         return {
           error: {
-            message: `Booking is not in SUBMITTED status. Current status: ${booking.bookingStatus}`,
+            message: `Booking cannot be approved in its current status: ${booking.bookingStatus}`,
             code: HttpStatus.BAD_REQUEST,
           },
         };
@@ -79,38 +82,101 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
         };
       }
 
-      // 4. Update approval header
+      // 4. Update approval header & booking based on approval type
       const decisionTime = new Date();
-      await this.repository.updateApprovalHeader(id, {
-        decisionL1: dto.decision as ApprovalStatus,
-        decisionTimeL1: decisionTime,
-        commentL1: dto.comment || null,
-        updatedBy: employeeId,
-      });
 
-      // 5. Update booking status based on decision
-      let newStatus: BookingStatus;
-      if (dto.decision === ApprovalStatus.APPROVED) {
-        newStatus = BookingStatus.APPROVED_L1;
-      } else if (dto.decision === ApprovalStatus.REJECTED) {
-        newStatus = BookingStatus.REJECTED;
-      } else if (dto.decision === ApprovalStatus.RETURNED) {
-        newStatus = BookingStatus.RETURNED;
+      if (isExternalReApproval) {
+        // External Re-Approval Round: update decisionL1External field
+        await this.repository.updateApprovalHeader(id, {
+          decisionL1External: dto.decision as ApprovalStatus,
+          decisionTimeL1External: decisionTime,
+          updatedBy: employeeId,
+        } as any);
+
+        let newStatus: BookingStatus;
+        if (dto.decision === ApprovalStatus.APPROVED) {
+          // L1 approved the rental cost → mark as ASSIGNED + create SuratJalan
+          newStatus = BookingStatus.ASSIGNED;
+
+          await this.repository.updateApprovalHeader(id, {
+            gaAssigneeId: (booking.approvalHeader as any)?.gaAssigneeId ?? employeeId,
+            decisionL2: ApprovalStatus.APPROVED,
+            updatedBy: employeeId,
+          });
+
+          // Create SuratJalan now that L1 has approved the external vehicle cost
+          const assignment = (booking as any).assignment;
+          if (booking.segments && booking.segments.length > 0 && assignment) {
+            const segment = booking.segments[0];
+            const sjCode = `SJ-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(id).padStart(3, '0')}`;
+            const clientDb = (await import('@/shared/utils')).clientDb;
+            await clientDb.suratJalan.create({
+              data: {
+                sjCode,
+                bookingId: id,
+                segmentId: segment.id,
+                vehicleId: assignment.vehicleChosenId,
+                driverId: assignment.driverChosenId,
+                status: 'Draft',
+                isHandover: false,
+                createdBy: employeeId,
+              },
+            });
+            Logger.info(
+              `SuratJalan ${sjCode} created after external vehicle cost approved for booking ${booking.bookingNumber}`,
+              'ApprovalUseCase.approveBooking',
+            );
+          }
+        } else if (dto.decision === ApprovalStatus.REJECTED) {
+          // L1 rejected → send back to GA (revert to APPROVED_L1 so GA can re-assign)
+          newStatus = BookingStatus.APPROVED_L1;
+        } else if (dto.decision === ApprovalStatus.RETURNED) {
+          // L1 returned → same as rejected for GA
+          newStatus = BookingStatus.APPROVED_L1;
+        } else {
+          return {
+            error: {
+              message: 'Invalid decision. Must be APPROVED, REJECTED, or RETURNED',
+              code: HttpStatus.BAD_REQUEST,
+            },
+          };
+        }
+
+        await this.repository.updateBooking(id, { bookingStatus: newStatus, updatedBy: employeeId });
+        Logger.info(
+          `External re-approval for booking ${booking.bookingNumber}: decision=${dto.decision}, new status=${newStatus}`,
+          'ApprovalUseCase.approveBooking',
+        );
       } else {
-        return {
-          error: {
-            message: 'Invalid decision. Must be APPROVED, REJECTED, or RETURNED',
-            code: HttpStatus.BAD_REQUEST,
-          },
-        };
+        // Standard L1 Approval Round
+        await this.repository.updateApprovalHeader(id, {
+          decisionL1: dto.decision as ApprovalStatus,
+          decisionTimeL1: decisionTime,
+          commentL1: dto.comment || null,
+          updatedBy: employeeId,
+        });
+
+        // 5. Update booking status based on decision
+        let newStatus: BookingStatus;
+        if (dto.decision === ApprovalStatus.APPROVED) {
+          newStatus = BookingStatus.APPROVED_L1;
+        } else if (dto.decision === ApprovalStatus.REJECTED) {
+          newStatus = BookingStatus.REJECTED;
+        } else if (dto.decision === ApprovalStatus.RETURNED) {
+          newStatus = BookingStatus.RETURNED;
+        } else {
+          return {
+            error: {
+              message: 'Invalid decision. Must be APPROVED, REJECTED, or RETURNED',
+              code: HttpStatus.BAD_REQUEST,
+            },
+          };
+        }
+
+        await this.repository.updateBooking(id, { bookingStatus: newStatus, updatedBy: employeeId });
       }
 
-      await this.repository.updateBooking(id, {
-        bookingStatus: newStatus,
-        updatedBy: employeeId,
-      });
-
-      // 6. Send notification
+      // 6. Send notification to requester
       if (booking.requester) {
         const decisionMessage =
           dto.decision === ApprovalStatus.APPROVED
@@ -126,9 +192,8 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
         });
       }
 
-      // 7. If approved, notify GA for assignment
-      if (dto.decision === ApprovalStatus.APPROVED) {
-        // TODO: Get GA users and send notification
+      // 7. If standard approval approved, notify GA for assignment
+      if (!isExternalReApproval && dto.decision === ApprovalStatus.APPROVED) {
         Logger.info(
           `Booking ${booking.bookingNumber} approved, ready for GA assignment`,
           'ApprovalUseCase.approveBooking',
@@ -221,6 +286,21 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
             },
           },
         });
+
+        // Also include re-approval bookings (WAITING_EXTERNAL_APPROVE) in L1 list
+        const externalReApprovalCondition: Prisma.BookingWhereInput = {
+          bookingStatus: BookingStatus.WAITING_EXTERNAL_APPROVE,
+        };
+        if (isLeader) {
+          externalReApprovalCondition.approvalHeader = {
+            approverL1Id: employeeId,
+          };
+        } else if (approverId) {
+          externalReApprovalCondition.approvalHeader = {
+            approverL1Id: approverId,
+          };
+        }
+        orConditions.push(externalReApprovalCondition);
       }
 
       // 2. L2 Approval (GA Assignment): Booking approved by L1 waiting for GA/Assignment
@@ -245,6 +325,7 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
       if (level === ApprovalLevel.ALL || level === ApprovalLevel.TRACKING) {
         const trackingStatuses = [
           BookingStatus.APPROVED_L1,
+          BookingStatus.WAITING_EXTERNAL_APPROVE,
           BookingStatus.ASSIGNED,
           BookingStatus.MERGED,
           BookingStatus.FINISHED,
@@ -307,6 +388,14 @@ export class ApprovalUseCase implements ApprovalUsecasePort {
               approverL1Id: employeeId,
               decisionL1: null,
             },
+          },
+        });
+
+        // External re-approval tasks are also actionable for L1
+        pendingOrConditions.push({
+          bookingStatus: BookingStatus.WAITING_EXTERNAL_APPROVE,
+          approvalHeader: {
+            approverL1Id: employeeId,
           },
         });
       }

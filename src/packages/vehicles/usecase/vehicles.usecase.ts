@@ -349,6 +349,15 @@ export class VehiclesUseCase implements VehiclesUsecasePort {
         };
       }
 
+      if (createDto.resourceMode === 'MODE_A' && !createDto.vendorId) {
+        return {
+          error: {
+            message: 'Vendor wajib diisi untuk kendaraan Mode A (Sewa Harian)',
+            code: 400,
+          },
+        };
+      }
+
       const MAX_IMAGES = 3;
       if (createDto.imageAssetIds.length > MAX_IMAGES) {
         return {
@@ -472,6 +481,19 @@ export class VehiclesUseCase implements VehiclesUsecasePort {
             },
           };
         }
+      }
+
+      // Validate Mode A vendor requirement
+      const finalResourceMode = updateDto.resourceMode ?? existing.resourceMode;
+      const finalVendorId = updateDto.vendorId ?? (existing.vendorId || null);
+
+      if (finalResourceMode === 'MODE_A' && !finalVendorId) {
+        return {
+          error: {
+            message: 'Vendor wajib diisi untuk kendaraan Mode A (Sewa Harian)',
+            code: 400,
+          },
+        };
       }
 
       // Validate image count if updating images (min 1, max 3)

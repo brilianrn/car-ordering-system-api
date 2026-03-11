@@ -11,28 +11,28 @@ export interface ApprovalRequestWhatsAppData {
 
 export const getApprovalRequestWhatsAppMessage = (data: ApprovalRequestWhatsAppData): string => {
   return `
-🚗 *PERMINTAAN PERSETUJUAN BOOKING*
+🚗 *BOOKING APPROVAL REQUEST*
 
-Halo *${data.approverName}*,
+Hello *${data.approverName}*,
 
-Anda memiliki permintaan booking mobil baru yang memerlukan persetujuan Anda.
+You have a new car booking request that requires your approval.
 
-📋 *Detail Booking:*
-• Nomor: ${data.bookingNumber}
-• Pemohon: ${data.requesterName}
-• Tujuan: ${data.destination}
-• Tanggal: ${data.date}
-• Keperluan: ${data.purpose}
+📋 *Booking Details:*
+• Number: ${data.bookingNumber}
+• Requester: ${data.requesterName}
+• Destination: ${data.destination}
+• Date: ${data.date}
+• Purpose: ${data.purpose}
 
-Silakan pilih tindakan:
+Please select an action:
 
-✅ *Setujui:*
+✅ *Approve:*
 ${data.approveLink}
 
-❌ *Tolak:*
+❌ *Reject:*
 ${data.rejectLink}
 
-⚠️ _Token berlaku 7 hari. Link akan mengarahkan ke halaman konfirmasi._
+⚠️ _Token is valid for 7 days. Link will redirect to the confirmation page._
 
 ---
 _Car Ordering System - Dharma Polimetal_
