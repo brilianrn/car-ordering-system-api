@@ -126,6 +126,7 @@ export class ApprovalRepository implements ApprovalRepositoryPort {
             include: {
               vehicleChosen: true,
               driverChosen: true,
+              vendorChosen: true,
             },
           },
           segments: {

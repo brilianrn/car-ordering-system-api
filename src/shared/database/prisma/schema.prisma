@@ -289,7 +289,7 @@ model Booking {
   passengerNames   Json?            @map("passenger_names") // Array of passenger names (for backward compatibility)
   passengerIds     Json?            @map("passenger_ids") // Array of employee IDs (employeeId strings)
   categoryId       Int              @map("category_id")
-  resourceMode     ResourceMode     @map("resource_mode")
+  resourceMode     ResourceMode?    @map("resource_mode")
   manualApproverId String?          @map("manual_approver_id") // Stores explicit L1 approver selection
   bookingStatus    BookingStatus    @default(DRAFT) @map("booking_status")
   cancelReason     String?          @map("cancel_reason")

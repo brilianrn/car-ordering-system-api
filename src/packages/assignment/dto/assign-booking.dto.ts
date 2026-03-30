@@ -5,17 +5,15 @@ import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Min, ValidateIf } from
 export class AssignBookingDto {
   @IsOptional()
   @ValidateIf((o) => o.resourceMode === 'INTERNAL')
-  @IsInt()
-  @IsNotEmpty()
   @Type(() => Number)
+  @IsInt()
   @Min(1)
   vehicleChosenId?: number;
 
   @IsOptional()
   @ValidateIf((o) => o.resourceMode === 'INTERNAL')
-  @IsInt()
-  @IsNotEmpty()
   @Type(() => Number)
+  @IsInt()
   @Min(1)
   driverChosenId?: number;
 

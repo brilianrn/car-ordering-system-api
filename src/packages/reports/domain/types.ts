@@ -161,7 +161,7 @@ export interface RecapData {
     category: string;
     plant: string;
     orgUnit: string;
-    tripMode: string;
+    tripMode: string | null;
     startDate: Date;
     endDate: Date;
     distance: number;

@@ -74,8 +74,9 @@ export class CreateBookingDto {
   @IsEnum(ServiceType)
   serviceType: ServiceType;
 
+  @IsOptional()
   @IsEnum(ResourceMode)
-  resourceMode: ResourceMode;
+  resourceMode?: ResourceMode;
 
   @IsObject()
   @ValidateNested()
