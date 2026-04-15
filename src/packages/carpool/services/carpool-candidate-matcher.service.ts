@@ -76,70 +76,103 @@ export class CarpoolCandidateMatcherService {
         return [];
       }
 
-      // 4. Group by (to, YYYY-MM-DD). One group per unique destination + date.
-      const groupKeyToBookings = new Map<string, typeof bookings>();
+      // 4. Get configuration for threshold
+      const config = await this.configService.getConfig();
+
+      // 5. Group by Date ONLY first, to reduce similarity calculation scope
+      const dateToBookings = new Map<string, typeof bookings>();
       for (const b of bookings) {
-        const seg = b.segments[0];
-        if (!seg) continue;
-        const toNorm = (seg.to || 'Unknown').trim().toLowerCase();
         const dateStr = format(b.startAt, 'yyyy-MM-dd');
-        const key = `${toNorm}|${dateStr}`;
-        if (!groupKeyToBookings.has(key)) {
-          groupKeyToBookings.set(key, []);
+        if (!dateToBookings.has(dateStr)) {
+          dateToBookings.set(dateStr, []);
         }
-        groupKeyToBookings.get(key)!.push(b);
+        dateToBookings.get(dateStr)!.push(b);
       }
 
       const result: ICarpoolCandidateGroupResponse[] = [];
       const destDateSequenceMap = new Map<string, number>();
 
-      for (const [, groupBookings] of groupKeyToBookings) {
-        if (groupBookings.length === 0) continue;
+      // 6. Perform similarity clustering for each date
+      for (const [, dayBookings] of dateToBookings) {
+        if (dayBookings.length === 0) continue;
 
-        // Sort by startAt: first = anchor for similarity
-        groupBookings.sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
-        const anchor = groupBookings[0];
-        const anchorSegment = anchor.segments[0];
-        if (!anchorSegment) continue;
+        // Sort by startAt: earliest will likely be anchor
+        dayBookings.sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
 
-        const destLabel = anchorSegment.to || 'Unknown Location';
-        const shortLocation = this.getShortLocationName(destLabel);
-        const dateStr = format(anchor.startAt, 'yyyyMMdd');
-        const initials = this.getDestinationInitials(destLabel);
-        const seqKey = `${dateStr}-${initials}`;
-        const seq = (destDateSequenceMap.get(seqKey) ?? 0) + 1;
-        destDateSequenceMap.set(seqKey, seq);
-        const groupId = `GRP-${dateStr}-${initials}${seq.toString().padStart(2, '0')}`;
-        const groupColorHex = this.generateRandomColorHex();
+        const dayClusters: Array<{ anchor: (typeof bookings)[0]; bookings: typeof bookings }> = [];
 
-        const mappedBookings: ICarpoolBooking[] = await Promise.all(
-          groupBookings.map(async (m) => {
-            const mSegment = m.segments[0];
-            const similarityPercent =
-              m.id === anchor.id ? 100 : await this.calculateRouteSimilarity(anchorSegment, mSegment);
+        for (const booking of dayBookings) {
+          const bookingSegment = booking.segments[0];
+          if (!bookingSegment) continue;
 
-            return {
-              bookingId: m.id,
-              requesterName: m.requester.fullName,
-              startDatetime: this.formatToJakarta(m.startAt),
-              paxCount: m.passengerCount,
-              similarity: `${Math.round(similarityPercent)}%`,
-              from: mSegment?.from || 'Unknown',
-              to: mSegment?.to || 'Unknown',
-            };
-          }),
-        );
+          let matchedCluster: (typeof dayClusters)[number] | null = null;
+          for (const cluster of dayClusters) {
+            const anchorSegment = cluster.anchor.segments[0];
+            if (!anchorSegment) continue;
 
-        result.push({
-          groupId,
-          groupName: `Trip to ${shortLocation}`,
-          groupColorHex,
-          bookings: mappedBookings,
-        });
+            // Use the service's similarity calculation (async)
+            const similarity = await this.calculateRouteSimilarity(anchorSegment, bookingSegment);
+            if (similarity >= config.routeSimilarityThreshold) {
+              matchedCluster = cluster;
+              break;
+            }
+          }
+
+          if (matchedCluster) {
+            matchedCluster.bookings.push(booking);
+          } else {
+            dayClusters.push({ anchor: booking, bookings: [booking] });
+          }
+        }
+
+        // 7. Map clusters to response format
+        for (const cluster of dayClusters) {
+          if (cluster.bookings.length < 2) continue; // Only groups of 2+ are candidates
+
+          const anchor = cluster.anchor;
+          const anchorSegment = anchor.segments[0];
+          if (!anchorSegment) continue;
+
+          const destLabel = anchorSegment.to || 'Unknown Location';
+          const shortLocation = this.getShortLocationName(destLabel);
+          const dateIdStr = format(anchor.startAt, 'yyyyMMdd');
+          const initials = this.getDestinationInitials(destLabel);
+          
+          const seqKey = `${dateIdStr}-${initials}`;
+          const seq = (destDateSequenceMap.get(seqKey) ?? 0) + 1;
+          destDateSequenceMap.set(seqKey, seq);
+          
+          const groupId = `GRP-${dateIdStr}-${initials}${seq.toString().padStart(2, '0')}`;
+          const groupColorHex = this.generateRandomColorHex();
+
+          const mappedBookings: ICarpoolBooking[] = await Promise.all(
+            cluster.bookings.map(async (m) => {
+              const mSegment = m.segments[0];
+              const similarityPercent =
+                m.id === anchor.id ? 100 : await this.calculateRouteSimilarity(anchorSegment, mSegment);
+
+              return {
+                bookingId: m.id,
+                requesterName: m.requester.fullName,
+                startDatetime: this.formatToJakarta(m.startAt),
+                paxCount: m.passengerCount,
+                similarity: `${Math.round(similarityPercent)}%`,
+                from: mSegment?.from || 'Unknown',
+                to: mSegment?.to || 'Unknown',
+              };
+            }),
+          );
+
+          result.push({
+            groupId,
+            groupName: `Trip to ${shortLocation}`,
+            groupColorHex,
+            bookings: mappedBookings,
+          });
+        }
       }
 
-      return result?.filter((r) => r.bookings.length > 1);
-      // return result;
+      return result;
     } catch (error) {
       Logger.error(
         error instanceof Error ? error.message : 'Error in findGlobalCandidates',
