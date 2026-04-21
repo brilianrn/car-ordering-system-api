@@ -221,7 +221,12 @@ export class GeospatialService {
    * Calculate route similarity between two polylines
    * Returns similarity percentage (0-100)
    */
-  async calculateRouteSimilarity(polyline1: string, polyline2: string): Promise<number> {
+  async calculateRouteSimilarity(
+    polyline1: string, 
+    polyline2: string, 
+    pickupToleranceKm = 10, 
+    destinationToleranceKm = 5
+  ): Promise<number> {
     if (!polyline1 || !polyline2) {
       return 0;
     }
@@ -246,9 +251,8 @@ export class GeospatialService {
     const endDistance = this.haversineDistance(end1, end2);
 
     // If start/end points are very close, routes are similar
-    const maxDistance = 5; // km - maximum distance for similar routes
-    const startSimilarity = Math.max(0, 100 - (startDistance / maxDistance) * 100);
-    const endSimilarity = Math.max(0, 100 - (endDistance / maxDistance) * 100);
+    const startSimilarity = Math.max(0, 100 - (startDistance / pickupToleranceKm) * 100);
+    const endSimilarity = Math.max(0, 100 - (endDistance / destinationToleranceKm) * 100);
 
     // Average similarity
     const similarity = (startSimilarity + endSimilarity) / 2;

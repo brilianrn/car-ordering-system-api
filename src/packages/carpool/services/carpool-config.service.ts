@@ -9,6 +9,8 @@ export interface CarpoolConfig {
   maxDetourPercentage: number; // Maximum detour percentage allowed (default: 15)
   defaultInviteExpiryMinutes: number; // Default invitation expiry (default: 60)
   maxVehicleSeatCapacity: number; // Maximum seat capacity to consider (default: 7)
+  pickupToleranceKm: number; // Pickup proximity tolerance in km (default: 10)
+  destinationToleranceKm: number; // Destination proximity tolerance in km (default: 5)
 }
 
 @Injectable()
@@ -20,6 +22,8 @@ export class CarpoolConfigService {
     maxDetourPercentage: 15,
     defaultInviteExpiryMinutes: 60,
     maxVehicleSeatCapacity: 7,
+    pickupToleranceKm: 10,
+    destinationToleranceKm: 5,
   };
 
   /**
@@ -74,6 +78,12 @@ export class CarpoolConfigService {
             break;
           case 'MAX_VEHICLE_SEAT_CAPACITY':
             config.maxVehicleSeatCapacity = value || this.defaultConfig.maxVehicleSeatCapacity;
+            break;
+          case 'PICKUP_TOLERANCE_KM':
+            config.pickupToleranceKm = value || this.defaultConfig.pickupToleranceKm;
+            break;
+          case 'DESTINATION_TOLERANCE_KM':
+            config.destinationToleranceKm = value || this.defaultConfig.destinationToleranceKm;
             break;
         }
       }

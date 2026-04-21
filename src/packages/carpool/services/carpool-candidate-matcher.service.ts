@@ -286,7 +286,7 @@ export class CarpoolCandidateMatcherService {
           const timeDiff = Math.abs((candidate.startAt.getTime() - hostBooking.startAt.getTime()) / (1000 * 60));
 
           // Calculate route similarity using polyline if available, otherwise fallback to string matching
-          const routeSimilarity = await this.calculateRouteSimilarity(hostSegment, candidateSegment);
+          const routeSimilarity = await this.calculateRouteSimilarity(hostSegment, candidateSegment, config);
 
           // Calculate total passengers
           const totalPassengers = hostBooking.passengerCount + candidate.passengerCount;
@@ -403,6 +403,7 @@ export class CarpoolCandidateMatcherService {
           const routeSimilarity = await this.calculateRouteSimilarityPreSubmit(
             tempBookingData.segment,
             candidateSegment,
+            config,
           );
 
           // Calculate total passengers
@@ -518,6 +519,7 @@ export class CarpoolCandidateMatcherService {
       destinationLatLong: string;
     },
     candidateSegment: any,
+    config: CarpoolConfig,
   ): Promise<number> {
     // If candidate segment has polyline, try to calculate polyline similarity
     // by first calculating route for temp segment
@@ -533,6 +535,8 @@ export class CarpoolCandidateMatcherService {
           const similarity = await this.geospatialService.calculateRouteSimilarity(
             tempRoute.polyline,
             candidateSegment.routePolyline,
+            config.pickupToleranceKm,
+            config.destinationToleranceKm,
           );
           return similarity;
         }
@@ -594,7 +598,11 @@ export class CarpoolCandidateMatcherService {
    * Calculate route similarity between two routes
    * Uses polyline similarity if available, otherwise falls back to string matching
    */
-  private async calculateRouteSimilarity(hostSegment: any, candidateSegment: any): Promise<number> {
+  private async calculateRouteSimilarity(
+    hostSegment: any,
+    candidateSegment: any,
+    config?: CarpoolConfig,
+  ): Promise<number> {
     // If both segments have polylines and are validated, use polyline similarity
     if (
       hostSegment.routePolyline &&
@@ -606,6 +614,8 @@ export class CarpoolCandidateMatcherService {
         const similarity = await this.geospatialService.calculateRouteSimilarity(
           hostSegment.routePolyline,
           candidateSegment.routePolyline,
+          config?.pickupToleranceKm,
+          config?.destinationToleranceKm,
         );
         return similarity;
       } catch (error) {
@@ -658,12 +668,12 @@ export class CarpoolCandidateMatcherService {
 
     // Check if destinations match (different origins)
     if (hostToNorm === candidateToNorm) {
-      return 70;
+      return 75; // Increased from 70 to ensure it meets default threshold
     }
 
     // Check if origins match (different destinations)
     if (hostFromNorm === candidateFromNorm) {
-      return 60;
+      return 65; // Increased from 60
     }
 
     // Check for partial matches using word similarity
