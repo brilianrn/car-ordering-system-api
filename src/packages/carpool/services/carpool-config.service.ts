@@ -17,7 +17,7 @@ export interface CarpoolConfig {
 export class CarpoolConfigService {
   private readonly db = clientDb;
   private defaultConfig: CarpoolConfig = {
-    timeWindowMinutes: 30,
+    timeWindowMinutes: 60,
     routeSimilarityThreshold: 70,
     maxDetourPercentage: 15,
     defaultInviteExpiryMinutes: 60,

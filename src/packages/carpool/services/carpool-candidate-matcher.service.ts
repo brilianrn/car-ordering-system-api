@@ -521,6 +521,23 @@ export class CarpoolCandidateMatcherService {
     candidateSegment: any,
     config: CarpoolConfig,
   ): Promise<number> {
+    // Check for Region-Based Matches first (Region Lock)
+    const hostFromRegion = this.getRegionFromLocation(tempSegment.from);
+    const hostToRegion = this.getRegionFromLocation(tempSegment.to);
+    const candidateFromRegion = this.getRegionFromLocation(candidateSegment.from);
+    const candidateToRegion = this.getRegionFromLocation(candidateSegment.to);
+
+    if (
+      hostFromRegion &&
+      candidateFromRegion &&
+      hostToRegion &&
+      candidateToRegion &&
+      hostFromRegion === candidateFromRegion &&
+      hostToRegion === candidateToRegion
+    ) {
+      return 100; // Region-based lock
+    }
+
     // If candidate segment has polyline, try to calculate polyline similarity
     // by first calculating route for temp segment
     if (candidateSegment.routePolyline && candidateSegment.geocodeValidated) {
@@ -603,6 +620,23 @@ export class CarpoolCandidateMatcherService {
     candidateSegment: any,
     config?: CarpoolConfig,
   ): Promise<number> {
+    // Check for Region-Based Matches first (Region Lock)
+    const hostFromRegion = this.getRegionFromLocation(hostSegment.from);
+    const hostToRegion = this.getRegionFromLocation(hostSegment.to);
+    const candidateFromRegion = this.getRegionFromLocation(candidateSegment.from);
+    const candidateToRegion = this.getRegionFromLocation(candidateSegment.to);
+
+    if (
+      hostFromRegion &&
+      candidateFromRegion &&
+      hostToRegion &&
+      candidateToRegion &&
+      hostFromRegion === candidateFromRegion &&
+      hostToRegion === candidateToRegion
+    ) {
+      return 100; // Region-based lock
+    }
+
     // If both segments have polylines and are validated, use polyline similarity
     if (
       hostSegment.routePolyline &&
@@ -653,6 +687,19 @@ export class CarpoolCandidateMatcherService {
     const candidateFromNorm = normalize(candidateFrom);
     const candidateToNorm = normalize(candidateTo);
 
+    // Check for Region-Based Matches (Primary Match / "The Lock")
+    const hostFromRegion = this.getRegionFromLocation(hostFrom);
+    const hostToRegion = this.getRegionFromLocation(hostTo);
+    const candidateFromRegion = this.getRegionFromLocation(candidateFrom);
+    const candidateToRegion = this.getRegionFromLocation(candidateTo);
+
+    const isSameOriginRegion = hostFromRegion && candidateFromRegion && hostFromRegion === candidateFromRegion;
+    const isSameDestRegion = hostToRegion && candidateToRegion && hostToRegion === candidateToRegion;
+
+    if (isSameOriginRegion && isSameDestRegion) {
+      return 100; // Region-based lock
+    }
+
     // Check exact matches
     if (hostFromNorm === candidateFromNorm && hostToNorm === candidateToNorm) {
       return 100;
@@ -667,11 +714,17 @@ export class CarpoolCandidateMatcherService {
     }
 
     // Check if destinations match (different origins)
+    if (hostToRegion && candidateToRegion && hostToRegion === candidateToRegion) {
+      return 80; // Same destination region
+    }
     if (hostToNorm === candidateToNorm) {
       return 75; // Increased from 70 to ensure it meets default threshold
     }
 
     // Check if origins match (different destinations)
+    if (hostFromRegion && candidateFromRegion && hostFromRegion === candidateFromRegion) {
+      return 70; // Same origin region
+    }
     if (hostFromNorm === candidateFromNorm) {
       return 65; // Increased from 60
     }
@@ -703,5 +756,30 @@ export class CarpoolCandidateMatcherService {
     similarity = (matches / totalWords) * 100;
 
     return Math.min(100, Math.max(0, similarity));
+  }
+
+  /**
+   * Helper to detect region from location string
+   */
+  private getRegionFromLocation(location: string): string | null {
+    if (!location) return null;
+    const loc = location.toLowerCase();
+
+    // Region Cikarang
+    if (
+      loc.includes('cikarang') ||
+      loc.includes('jababeka') ||
+      loc.includes('lippo cikarang') ||
+      loc.includes('dharma polimetal')
+    ) {
+      return 'CIKARANG';
+    }
+
+    // Region Jakarta
+    if (loc.includes('jakarta') || loc.includes('gambir') || loc.includes('medan merdeka')) {
+      return 'JAKARTA';
+    }
+
+    return null;
   }
 }
