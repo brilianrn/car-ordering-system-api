@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { clientDb as prisma } from '../../utils/db';
 
-const main = async () => {
+export const seedOrgUnits = async () => {
   await prisma.organizationUnit.upsert({
     where: { code: 'BOD' },
     update: {},
@@ -60,7 +60,3 @@ const main = async () => {
 
   console.log('Organization Structure seeded successfully!');
 };
-
-main()
-  .catch((e) => console.error(e))
-  .finally(async () => await prisma.$disconnect());
