@@ -1,8 +1,7 @@
 import * as bcrypt from 'bcryptjs';
-import 'dotenv/config';
 import { clientDb as prisma } from '../../utils/db'; // Sesuaikan path clientDb kamu
 
-const main = async () => {
+export const seedUsers = async () => {
   console.log('Seeding Super Admin...');
 
   // 1. Cari Unit IT (Harusnya sudah ada dari seed sebelumnya)
@@ -55,7 +54,3 @@ const main = async () => {
   console.log('   Email: superadmin@cos.dharma.co.id');
   console.log('   Pass : admin123');
 };
-
-main()
-  .catch((e) => console.error(e))
-  .finally(async () => await prisma.$disconnect());
